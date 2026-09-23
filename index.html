@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.</div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.23.6</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -66,7 +66,7 @@ const num=n=>new Intl.NumberFormat('en-IN').format(Number(n||0));
 const pct=n=>n==null?'—':Number(n).toFixed(1)+'%';
 const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—';
 
-function authHeader(){const raw=sessionStorage.getItem('zri_auth');return raw?{'Authorization':'Basic '+raw}:{}}
+function authHeader(){const token=sessionStorage.getItem('zri_session');return token?{'X-Zipify-Session':token}:{}}
 function showLogin(){ $('app').classList.add('hidden');$('login').classList.remove('hidden');$('password').value=''}
 function showApp(){ $('login').classList.add('hidden');$('app').classList.remove('hidden')}
 function toast(msg,error=false){const t=$('toast');t.textContent=msg;t.className='toast'+(error?' error':'');setTimeout(()=>t.classList.add('hidden'),2600)}
@@ -184,13 +184,35 @@ async function navigate(view){
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
 $('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault();$('loginError').classList.add('hidden');const user=$('username').value.trim(),pass=$('password').value;
-  sessionStorage.setItem('zri_auth',btoa(user+':'+pass));showApp();
-  try{await api('/dashboard');navigate(location.hash.slice(1)||'dashboard')}catch(err){if(err.message!=='Unauthorized'){toast(err.message,true)}}
+  e.preventDefault();
+  $('loginError').classList.add('hidden');
+  const user=$('username').value.trim(),pass=$('password').value;
+  try{
+    const r=await fetch(API+'?action=login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:user,password:pass})
+    });
+    const d=await r.json();
+    if(!r.ok||!d.session) throw new Error(d.error||'Login failed');
+    sessionStorage.removeItem('zri_auth');
+    sessionStorage.setItem('zri_session',d.session);
+    showApp();
+    await navigate(location.hash.slice(1)||'dashboard');
+  }catch(err){
+    sessionStorage.removeItem('zri_session');
+    showLogin();
+    $('loginError').textContent=err.message||'Login failed';
+    $('loginError').classList.remove('hidden');
+  }
 });
-$('logout').onclick=()=>{sessionStorage.removeItem('zri_auth');location.hash='';showLogin()};
-window.addEventListener('hashchange',()=>{if(sessionStorage.getItem('zri_auth'))navigate(location.hash.slice(1)||'dashboard')});
-if(sessionStorage.getItem('zri_auth')){showApp();navigate(location.hash.slice(1)||'dashboard')}else showLogin();
+$('logout').onclick=async()=>{
+  try{await fetch(API+'?action=logout',{method:'POST',headers:authHeader()})}catch{}
+  sessionStorage.removeItem('zri_session');sessionStorage.removeItem('zri_auth');location.hash='';showLogin()
+};
+window.addEventListener('hashchange',()=>{if(sessionStorage.getItem('zri_session'))navigate(location.hash.slice(1)||'dashboard')});
+sessionStorage.removeItem('zri_auth');
+if(sessionStorage.getItem('zri_session')){showApp();navigate(location.hash.slice(1)||'dashboard')}else showLogin();
 </script>
 </body>
 </html>
