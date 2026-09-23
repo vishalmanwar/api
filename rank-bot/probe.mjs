@@ -34,45 +34,83 @@ try {
 
   const page = await context.newPage();
   const searchUrl = 'https://www.amazon.in/s?k=' + encodeURIComponent(keyword);
-  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
+
+  async function loadSearch(attempts = 4) {
+    let lastTitle = '';
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(3000 + attempt * 1000);
+        lastTitle = await page.title().catch(() => '');
+        const body = await page.locator('body').innerText().catch(() => '');
+        const hasHeader = (await page.locator('#nav-global-location-popover-link, #glow-ingress-line2').count()) > 0;
+        const hasResults = (await page.locator('[data-component-type="s-search-result"][data-asin]').count()) > 0;
+        if (body.trim().length > 200 && (hasHeader || hasResults)) return;
+      } catch {}
+      await page.waitForTimeout(1500 * attempt);
+    }
+    throw new Error('Amazon search page did not load usable content. Last title: ' + lastTitle);
+  }
+
+  async function currentLocation() {
+    const one = await page.locator('#glow-ingress-line1').first().textContent().catch(() => '');
+    const two = await page.locator('#glow-ingress-line2').first().textContent().catch(() => '');
+    return ((one || '') + ' ' + (two || '')).replace(/\\s+/g,' ').trim();
+  }
+
+  async function setPincode() {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      let locationLink = page.locator('#nav-global-location-popover-link');
+      if (!(await locationLink.count())) locationLink = page.locator('#glow-ingress-line2');
+      if (!(await locationLink.count())) locationLink = page.getByText(/Update location|Delivering to/i).first();
+      if (!(await locationLink.count())) {
+        await loadSearch(2);
+        continue;
+      }
+
+      try {
+        await locationLink.first().click({ timeout: 15000 });
+        const zip = page.locator('#GLUXZipUpdateInput');
+        await zip.waitFor({ state: 'visible', timeout: 15000 });
+        await zip.fill('');
+        await zip.fill(pincode);
+
+        const applyInput = page.locator('#GLUXZipUpdate > span > input, #GLUXZipUpdate input');
+        await applyInput.first().click({ timeout: 15000 });
+        await page.waitForTimeout(3000);
+
+        const confirmClose = page.locator('#GLUXConfirmClose, #GLUXConfirmClose-announce');
+        if (await confirmClose.count()) {
+          await confirmClose.first().click().catch(() => {});
+          await page.waitForTimeout(1000);
+        }
+
+        const loc = await currentLocation();
+        if (loc.includes(pincode)) return loc;
+
+        // Reload once: Amazon can update location server-side before header repaint.
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await page.waitForTimeout(2500);
+        const afterReload = await currentLocation();
+        if (afterReload.includes(pincode)) return afterReload;
+      } catch {}
+
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+    throw new Error('Pincode verification failed. Amazon header shows: ' + await currentLocation());
+  }
+
+  await loadSearch();
   await page.screenshot({ path: 'rank-initial.png', fullPage: false }).catch(() => {});
+  result.location_text = await setPincode();
 
-  // Set delivery location using the same UI an Amazon shopper uses.
-  let locationLink = page.locator('#nav-global-location-popover-link');
-  if (!(await locationLink.count())) locationLink = page.locator('#glow-ingress-line2');
-  if (!(await locationLink.count())) locationLink = page.getByText('Update location', { exact: true });
-  await locationLink.first().click({ timeout: 15000 });
-
-  const zip = page.locator('#GLUXZipUpdateInput');
-  await zip.waitFor({ state: 'visible', timeout: 15000 });
-  await zip.fill(pincode);
-
-  // Amazon.in's actual clickable Apply control is the nested input.
-  const applyInput = page.locator('#GLUXZipUpdate > span > input, #GLUXZipUpdate input');
-  await applyInput.first().click({ timeout: 15000 });
-
-  await page.waitForTimeout(2500);
-
-  // Some layouts require closing a confirmation dialog after the ZIP is accepted.
-  const confirmClose = page.locator('#GLUXConfirmClose, #GLUXConfirmClose-announce');
-  if (await confirmClose.count()) {
-    await confirmClose.first().click().catch(() => {});
-    await page.waitForTimeout(1000);
-  }
-
-  // Verify the pincode really took effect. Never trust a rank collected for the wrong location.
-  result.location_text = ((await page.locator('#glow-ingress-line1').first().textContent().catch(() => '')) + ' ' +
-                          (await page.locator('#glow-ingress-line2').first().textContent().catch(() => '')))
-                          .replace(/\\s+/g,' ').trim();
-
+  // Reload search results after the location is confirmed.
+  await loadSearch();
+  result.location_text = await currentLocation();
   if (!result.location_text.includes(pincode)) {
-    await page.screenshot({ path: 'rank-location-failed.png', fullPage: false }).catch(() => {});
-    throw new Error('Pincode verification failed. Amazon header shows: ' + result.location_text);
+    throw new Error('Pincode was lost before rank extraction. Amazon header shows: ' + result.location_text);
   }
-
-  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(4000);
 
   result.title = await page.title();
   result.url = page.url();
