@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.23.5';
+const EXT_VERSION='2026.09.23.6';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -112,22 +112,54 @@ async function setPincode(tabId,pincode){
                   document.querySelector('input[placeholder*="postal" i]');
       if(!input) return {ok:false,reason:'Pincode input not found'};
 
+      // Use the native input value setter so Amazon's own JS sees the change.
+      const desc=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+      if(desc?.set){
+        desc.set.call(input,'');
+        input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward',data:null}));
+        desc.set.call(input,zip);
+      }else{
+        input.value=zip;
+      }
+
       input.focus();
-      input.value='';
-      input.dispatchEvent(new Event('input',{bubbles:true}));
-      input.value=zip;
-      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:zip}));
       input.dispatchEvent(new Event('change',{bubbles:true}));
+      input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'0',code:'Digit0'}));
 
       const apply=document.querySelector('#GLUXZipUpdate') ||
                   document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]') ||
+                  document.querySelector('span#GLUXZipUpdate-announce')?.closest('input,button,span.a-button') ||
                   [...document.querySelectorAll('input,button')].find(el=>{
                     const t=(el.value||el.textContent||'').trim();
                     return /apply|update/i.test(t);
                   });
+
       if(!apply) return {ok:false,reason:'Apply/Update button not found'};
-      apply.click();
-      return {ok:true};
+
+      const form=input.closest('form') || apply.closest('form');
+
+      // Prefer real form submission because Amazon sometimes ignores synthetic click().
+      if(form?.requestSubmit){
+        const submitter=apply.matches?.('button,input[type="submit"]') ? apply : undefined;
+        try{
+          form.requestSubmit(submitter);
+          return {ok:true,method:'requestSubmit'};
+        }catch{}
+      }
+
+      // Fallback: pointer/mouse event sequence + click.
+      for(const type of ['pointerdown','mousedown','pointerup','mouseup','click']){
+        apply.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window}));
+      }
+      if(typeof apply.click==='function') apply.click();
+
+      // Last fallback: pressing Enter in the pincode field.
+      input.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'Enter',code:'Enter'}));
+      input.dispatchEvent(new KeyboardEvent('keypress',{bubbles:true,key:'Enter',code:'Enter'}));
+      input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'Enter',code:'Enter'}));
+
+      return {ok:true,method:'click+enter'};
     },
     args:[pincode]
   });
