@@ -162,4 +162,5 @@ try {
 }
 
 console.log('RANK_PROBE_RESULT=' + JSON.stringify(result));
-if (result.status !== 'SUCCESS') process.exitCode = 2;
+// A blocked/unavailable Amazon check is data-quality failure, not CI failure.
+// Keep the workflow successful and let production persist FAILED with the reason.
