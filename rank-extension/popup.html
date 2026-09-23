@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Zipify Rank Agent</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Zipify Rank Agent</h1>
+    <p class="muted">Free Amazon.in rank collector using your normal Chrome session.</p>
+    <label>Agent token</label>
+    <input id="token" type="password" placeholder="Paste agent token">
+    <div class="row">
+      <button id="save">Save token</button>
+      <button id="run" class="primary">Run now</button>
+    </div>
+    <div id="status" class="status">Not configured.</div>
+    <div class="small">Keep Chrome open for scheduled checks.</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
