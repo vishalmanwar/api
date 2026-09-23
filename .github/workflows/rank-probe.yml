@@ -1,0 +1,38 @@
+name: Free Amazon Rank Probe
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "rank-bot/**"
+      - "package.json"
+      - ".github/workflows/rank-probe.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Probe Amazon India rank
+        env:
+          RANK_KEYWORD: "zip lock bag"
+          RANK_ASIN: "B0CZNM35RC"
+          RANK_PINCODE: "380015"
+        run: npm run rank:probe
+      - name: Upload screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-rank-probe
+          path: rank-probe.png
+          if-no-files-found: ignore
+          retention-days: 1
