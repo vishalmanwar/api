@@ -36,24 +36,40 @@ try {
   await page.goto('https://www.amazon.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   // Set delivery location using the same UI an Amazon shopper uses.
-  const locationLink = page.locator('#nav-global-location-popover-link');
-  if (await locationLink.count()) {
-    await locationLink.first().click({ timeout: 15000 });
-    const zip = page.locator('#GLUXZipUpdateInput');
-    await zip.waitFor({ state: 'visible', timeout: 15000 });
-    await zip.fill(pincode);
-    const apply = page.locator('#GLUXZipUpdate input, #GLUXZipUpdate');
-    await apply.first().click({ timeout: 15000 });
-    await page.waitForTimeout(2500);
-    // Some Amazon layouts show a Done button after applying.
-    const done = page.getByText('Done', { exact: true });
-    if (await done.count()) {
-      await done.first().click().catch(() => {});
-    }
-    await page.waitForTimeout(1500);
+  const locationLink = page.locator('#glow-ingress-line2, #nav-global-location-popover-link').first();
+  await locationLink.click({ timeout: 15000 });
+
+  const zip = page.locator('#GLUXZipUpdateInput');
+  await zip.waitFor({ state: 'visible', timeout: 15000 });
+  await zip.fill(pincode);
+
+  // Amazon currently exposes the visible Apply control through this announce element.
+  const applyAnnounce = page.locator('#GLUXZipUpdate-announce');
+  const applyFallback = page.locator('#GLUXZipUpdate');
+  if (await applyAnnounce.count()) {
+    await applyAnnounce.click({ timeout: 15000 });
+  } else {
+    await applyFallback.click({ timeout: 15000 });
   }
 
-  result.location_text = await page.locator('#glow-ingress-line2').first().textContent().catch(() => null);
+  await page.waitForTimeout(2500);
+
+  // Some layouts require closing a confirmation dialog after the ZIP is accepted.
+  const confirmClose = page.locator('#GLUXConfirmClose, #GLUXConfirmClose-announce');
+  if (await confirmClose.count()) {
+    await confirmClose.first().click().catch(() => {});
+    await page.waitForTimeout(1000);
+  }
+
+  // Verify the pincode really took effect. Never trust a rank collected for the wrong location.
+  result.location_text = ((await page.locator('#glow-ingress-line1').first().textContent().catch(() => '')) + ' ' +
+                          (await page.locator('#glow-ingress-line2').first().textContent().catch(() => '')))
+                          .replace(/\\s+/g,' ').trim();
+
+  if (!result.location_text.includes(pincode)) {
+    await page.screenshot({ path: 'rank-location-failed.png', fullPage: false }).catch(() => {});
+    throw new Error('Pincode verification failed. Amazon header shows: ' + result.location_text);
+  }
 
   const url = 'https://www.amazon.in/s?k=' + encodeURIComponent(keyword);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
