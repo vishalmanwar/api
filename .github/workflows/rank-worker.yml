@@ -56,20 +56,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        attempt: [1, 2, 3]
-    runs-on: ubuntu-latest
+        include:
+          - attempt: 1
+            os: ubuntu-latest
+          - attempt: 2
+            os: windows-latest
+          - attempt: 3
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Restore worker config
-        shell: bash
-        run: echo "${{ needs.prepare.outputs.config_b64 }}" | base64 -d > rank-config.json
+        env:
+          CONFIG_B64: ${{ needs.prepare.outputs.config_b64 }}
+        run: node -e "require('fs').writeFileSync('rank-config.json', Buffer.from(process.env.CONFIG_B64,'base64'))"
       - name: Install dependencies
         run: npm install
-      - name: Install Chromium
+      - name: Install Chromium dependencies on Linux
+        if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
+      - name: Install Chromium on Windows/macOS
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
       - name: Collect Amazon ranks
         env:
           WORKER_ATTEMPT: ${{ matrix.attempt }}
