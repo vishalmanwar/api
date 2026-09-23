@@ -38,7 +38,11 @@ async function loadSearch(page,keyword,pageNum=1){
     }catch{}
     await page.waitForTimeout(800*a);
   }
-  throw new Error('Amazon search unavailable. Last title: '+last);
+  const finalUrl=page.url();
+  const body=await page.locator('body').innerText().catch(()=>'');
+  const shot=path.join(here,'amazon-failure-'+Date.now()+'.png');
+  await page.screenshot({path:shot,fullPage:false}).catch(()=>{});
+  throw new Error('Amazon search unavailable. Title: '+last+' URL: '+finalUrl+' bodyChars: '+body.length+' screenshot: '+shot);
 }
 async function setPincode(page,keyword,pincode){
   await loadSearch(page,keyword,1);
@@ -107,14 +111,39 @@ async function main(){
   const conf=await api('local_worker_config');
   if(conf.mode==='skip'){ console.log('No rank check due.'); return; }
   console.log('Rank check mode:',conf.mode,'Rules:',conf.rules.length);
-  const results=[]; const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
-  try{
-    const groups=new Map();
-    for(const r of conf.rules){const key=r.pincode+'|'+r.device;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
-    for(const [key,rules] of groups){
+  const results=[];
+  const groups=new Map();
+  for(const r of conf.rules){const key=r.pincode+'|'+r.device;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
+  for(const [key,rules] of groups){
       const [pincode,device]=key.split('|');
-      const context=await browser.newContext({locale:'en-IN',timezoneId:'Asia/Kolkata',viewport:device==='mobile'?{width:412,height:915}:{width:1440,height:1000}});
-      const page=await context.newPage();
+      const safeKey=(pincode+'-'+device).replace(/[^a-zA-Z0-9_-]/g,'_');
+      const profileDir=path.join(here,'chrome-profile-'+safeKey);
+      const launchOptions={
+        headless:false,
+        locale:'en-IN',
+        timezoneId:'Asia/Kolkata',
+        viewport:device==='mobile'?{width:412,height:915}:{width:1440,height:1000},
+        args:[
+          '--disable-blink-features=AutomationControlled',
+          '--window-position=-32000,-32000',
+          '--window-size=1440,1000',
+          '--no-first-run',
+          '--no-default-browser-check'
+        ],
+        ignoreDefaultArgs:['--enable-automation']
+      };
+      let context;
+      try{
+        context=await chromium.launchPersistentContext(profileDir,{...launchOptions,channel:'chrome'});
+        console.log('Using installed Google Chrome.');
+      }catch(e){
+        console.log('Installed Chrome launch failed, falling back to Playwright Chromium:',e?.message||String(e));
+        context=await chromium.launchPersistentContext(profileDir,launchOptions);
+      }
+      await context.addInitScript(()=>{
+        try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined});}catch{}
+      });
+      const page=context.pages()[0]||await context.newPage();
       try{
         console.log('Verified location:',await setPincode(page,rules[0].keyword,pincode));
         const byKeyword=new Map();
@@ -127,7 +156,6 @@ async function main(){
         results.push(...rules.map(r=>({rule_id:r.rule_id,asin:r.asin,keyword:r.keyword,pincode,device:r.device,checked_at:new Date().toISOString(),status:'FAILED',error:e?.message||String(e)})));
       }finally{await context.close();}
     }
-  }finally{await browser.close();}
   const runId='local-'+os.hostname()+'-'+Date.now();
   console.log('Uploaded:',await api('local_worker_ingest',{method:'POST',body:JSON.stringify({run_id:runId,mode:conf.mode,request_id:conf.request_id||null,results})}));
 }
