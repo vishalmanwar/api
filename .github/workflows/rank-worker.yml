@@ -1,0 +1,110 @@
+name: Free Amazon Rank Worker
+
+on:
+  schedule:
+    - cron: "30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.config.outputs.mode }}
+      config_b64: ${{ steps.config.outputs.config_b64 }}
+      request_id: ${{ steps.config.outputs.request_id }}
+    steps:
+      - name: Get GitHub OIDC token
+        id: oidc
+        shell: bash
+        run: |
+          set +e
+          RESP=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=zipify-rank-intelligence")
+          TOKEN=$(echo "$RESP" | jq -r '.value // empty')
+          if [ -n "$TOKEN" ]; then
+            echo "::add-mask::$TOKEN"
+            echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch rank configuration
+        id: config
+        shell: bash
+        env:
+          TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set +e
+          API="https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence?action=worker_config"
+          CONFIG=$(curl -sS -H "Authorization: Bearer $TOKEN" "$API")
+          MODE=$(echo "$CONFIG" | jq -r '.mode // "skip"')
+          REQUEST_ID=$(echo "$CONFIG" | jq -r '.request_id // empty')
+          B64=$(printf '%s' "$CONFIG" | base64 -w0)
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "request_id=$REQUEST_ID" >> "$GITHUB_OUTPUT"
+          echo "config_b64=$B64" >> "$GITHUB_OUTPUT"
+          echo "Rank mode: $MODE"
+
+  probe:
+    needs: prepare
+    if: needs.prepare.outputs.mode != 'skip' && needs.prepare.outputs.mode != ''
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Restore worker config
+        shell: bash
+        run: echo "${{ needs.prepare.outputs.config_b64 }}" | base64 -d > rank-config.json
+      - name: Install dependencies
+        run: npm install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Collect Amazon ranks
+        env:
+          WORKER_ATTEMPT: ${{ matrix.attempt }}
+        run: node rank-bot/worker.mjs
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rank-worker-${{ matrix.attempt }}
+          path: rank-results.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  collect:
+    needs: [prepare, probe]
+    if: always() && needs.prepare.outputs.mode != 'skip' && needs.prepare.outputs.mode != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download worker results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rank-worker-*
+          path: rank-artifacts
+      - name: Get GitHub OIDC token
+        id: oidc
+        shell: bash
+        run: |
+          set +e
+          RESP=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=zipify-rank-intelligence")
+          TOKEN=$(echo "$RESP" | jq -r '.value // empty')
+          if [ -n "$TOKEN" ]; then
+            echo "::add-mask::$TOKEN"
+            echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Merge and store results
+        env:
+          WORKER_TOKEN: ${{ steps.oidc.outputs.token }}
+          RANK_API: "https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence"
+          RANK_MODE: ${{ needs.prepare.outputs.mode }}
+          REQUEST_ID: ${{ needs.prepare.outputs.request_id }}
+        run: node rank-bot/collect.mjs
