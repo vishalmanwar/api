@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "30 * * * *"
   workflow_dispatch:
+  push:
+    branches: ["master"]
+    paths:
+      - "rank-bot/worker.mjs"
 
 permissions:
   contents: read
