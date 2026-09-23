@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.23.7';
+const EXT_VERSION='2026.09.23.8';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -86,99 +86,13 @@ async function realClick(tabId,x,y){
 }
 
 async function setPincode(tabId,pincode){
-  await navigate(tabId,'https://www.amazon.in/');
-  let snap=await amazonSnapshot(tabId);
-  if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
-
-  if(String(snap.location||'').includes(String(pincode))){
-    return snap.location;
+  const snap=await amazonSnapshot(tabId);
+  if((snap.bodyChars||0)<100) throw new Error('Amazon page did not load normally.');
+  const loc=String(snap.location||'');
+  if(!loc.includes(String(pincode))){
+    throw new Error('Open Amazon.in in this Edge window, manually set delivery pincode to '+pincode+', confirm the header shows '+pincode+', then click Run now again. Current header: '+loc);
   }
-
-  await chrome.debugger.attach({tabId},'1.3').catch(e=>{
-    if(!String(e?.message||e).includes('Another debugger is already attached')) throw e;
-  });
-
-  try{
-    // Click Amazon's normal Update location control using browser-level input.
-    const [locRectRes]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const el=document.querySelector('#nav-global-location-popover-link') ||
-                 document.querySelector('#glow-ingress-block');
-        if(!el) return null;
-        const r=el.getBoundingClientRect();
-        return {x:r.left+r.width/2,y:r.top+r.height/2};
-      }
-    });
-    const locRect=locRectRes?.result;
-    if(!locRect) throw new Error('Amazon Update location control not found.');
-    await realClick(tabId,locRect.x,locRect.y);
-    await sleep(1400);
-
-    // Find the ZIP input and click it with real browser input.
-    const [uiRes]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const input=document.querySelector('#GLUXZipUpdateInput') ||
-                    document.querySelector('input[data-action="GLUXPostalInputAction"]') ||
-                    document.querySelector('input[placeholder*="pincode" i]') ||
-                    document.querySelector('input[placeholder*="postal" i]');
-        const apply=document.querySelector('#GLUXZipUpdate') ||
-                    document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]') ||
-                    [...document.querySelectorAll('input,button')].find(el=>/apply|update/i.test((el.value||el.textContent||'').trim()));
-        if(!input) return {error:'Pincode input not found'};
-        if(!apply) return {error:'Apply button not found'};
-        const ir=input.getBoundingClientRect();
-        const ar=apply.getBoundingClientRect();
-        return {
-          input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
-          apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
-        };
-      }
-    });
-    const ui=uiRes?.result;
-    if(!ui||ui.error) throw new Error('Amazon location popup: '+(ui?.error||'controls missing'));
-
-    await realClick(tabId,ui.input.x,ui.input.y);
-    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
-    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
-    await cdp(tabId,'Input.insertText',{text:String(pincode)});
-    await sleep(400);
-
-    // Click Apply with a browser-level mouse event.
-    await realClick(tabId,ui.apply.x,ui.apply.y);
-    await sleep(2200);
-
-    // If Amazon shows a Done/Continue confirmation, click it too.
-    const [confirmRes]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const el=document.querySelector('#GLUXConfirmClose') ||
-                 document.querySelector('button[name="glowDoneButton"]') ||
-                 document.querySelector('input[name="glowDoneButton"]') ||
-                 [...document.querySelectorAll('button,input')].find(x=>/done|continue/i.test((x.value||x.textContent||'').trim()));
-        if(!el) return null;
-        const r=el.getBoundingClientRect();
-        return {x:r.left+r.width/2,y:r.top+r.height/2};
-      }
-    });
-    if(confirmRes?.result){
-      await realClick(tabId,confirmRes.result.x,confirmRes.result.y);
-      await sleep(1200);
-    }
-
-    await chrome.tabs.reload(tabId);
-    await waitTabComplete(tabId,60000);
-    await sleep(1800);
-
-    snap=await amazonSnapshot(tabId);
-    if(!String(snap.location||'').includes(String(pincode))){
-      throw new Error('Amazon still did not keep pincode '+pincode+'. Header: '+(snap.location||''));
-    }
-    return snap.location;
-  }finally{
-    await chrome.debugger.detach({tabId}).catch(()=>{});
-  }
+  return loc;
 }
 
 async function scrapeKeyword(tabId,keyword,rules,pincode){
@@ -264,8 +178,16 @@ async function runCheck(force=false){
       return {ok:true,skipped:true};
     }
 
-    tab=await chrome.tabs.create({url:'https://www.amazon.in/',active:false});
-    await waitTabComplete(tab.id,60000);
+    const activeTabs=await chrome.tabs.query({active:true,currentWindow:true});
+    let chosen=activeTabs.find(t=>/^https:\/\/www\.amazon\.in\//i.test(t.url||''));
+    if(!chosen){
+      const amazonTabs=await chrome.tabs.query({currentWindow:true,url:['https://www.amazon.in/*']});
+      chosen=amazonTabs[0];
+    }
+    if(!chosen) throw new Error('No Amazon.in tab found. Open Amazon.in, set pincode 380015 manually, then click Run now.');
+    tab=chosen;
+    await chrome.tabs.update(tab.id,{active:true});
+    await waitTabComplete(tab.id,60000).catch(()=>{});
 
     const results=[];
     const groups=new Map();
@@ -361,7 +283,7 @@ async function runCheck(force=false){
     throw e;
   }finally{
     running=false;
-    if(tab?.id) await chrome.tabs.remove(tab.id).catch(()=>{});
+    // Keep the user's Amazon tab open.
   }
 }
 
