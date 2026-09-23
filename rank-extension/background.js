@@ -79,6 +79,11 @@ async function setPincode(tabId,pincode){
   const snap=await amazonSnapshot(tabId);
   if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
 
+  // If Amazon already has the exact required delivery pincode, keep it.
+  if(String(snap.location||'').includes(String(pincode))){
+    return snap.location;
+  }
+
   // Open Amazon's normal Update location dialog.
   const [openRes]=await chrome.scripting.executeScript({
     target:{tabId},
