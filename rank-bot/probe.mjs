@@ -33,24 +33,23 @@ try {
   });
 
   const page = await context.newPage();
-  await page.goto('https://www.amazon.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const searchUrl = 'https://www.amazon.in/s?k=' + encodeURIComponent(keyword);
+  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(2500);
 
   // Set delivery location using the same UI an Amazon shopper uses.
-  const locationLink = page.locator('#glow-ingress-line2, #nav-global-location-popover-link').first();
-  await locationLink.click({ timeout: 15000 });
+  let locationLink = page.locator('#nav-global-location-popover-link');
+  if (!(await locationLink.count())) locationLink = page.locator('#glow-ingress-line2');
+  if (!(await locationLink.count())) locationLink = page.getByText('Update location', { exact: true });
+  await locationLink.first().click({ timeout: 15000 });
 
   const zip = page.locator('#GLUXZipUpdateInput');
   await zip.waitFor({ state: 'visible', timeout: 15000 });
   await zip.fill(pincode);
 
-  // Amazon currently exposes the visible Apply control through this announce element.
-  const applyAnnounce = page.locator('#GLUXZipUpdate-announce');
-  const applyFallback = page.locator('#GLUXZipUpdate');
-  if (await applyAnnounce.count()) {
-    await applyAnnounce.click({ timeout: 15000 });
-  } else {
-    await applyFallback.click({ timeout: 15000 });
-  }
+  // Amazon.in's actual clickable Apply control is the nested input.
+  const applyInput = page.locator('#GLUXZipUpdate > span > input, #GLUXZipUpdate input');
+  await applyInput.first().click({ timeout: 15000 });
 
   await page.waitForTimeout(2500);
 
@@ -71,8 +70,7 @@ try {
     throw new Error('Pincode verification failed. Amazon header shows: ' + result.location_text);
   }
 
-  const url = 'https://www.amazon.in/s?k=' + encodeURIComponent(keyword);
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(4000);
 
   result.title = await page.title();
