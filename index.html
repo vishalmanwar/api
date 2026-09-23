@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.23.7</span></div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.23.8</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -97,18 +97,30 @@ function statusBadge(status){
 function emptyState(title,text){return '<div class="empty-state"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
 
 async function renderDashboard(){
-  $('main').innerHTML=pageHead('Search visibility','Amazon India · rank monitoring','<div class="muted" id="updated"></div>')+'<div class="loader">Loading dashboard…</div>';
-  const d=await api('/dashboard');
+  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring')+'<div class="loader">Loading dashboard…</div>';
+  const [d,p]=await Promise.all([api('/dashboard'),api('/provider_status')]);
   const rows=d.rows.map(x=>{
     const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
     const sponsored=x.sponsored_position==null?'<span class="empty">No data</span>':'#'+x.sponsored_position;
     const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank<=x.critical_rank?'Warning':'Critical'));
-    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td></tr>';
+    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td></tr>';
   }).join('');
-  $('main').innerHTML=pageHead('Search visibility','Amazon India · rank monitoring','<div class="muted">Updated '+new Date().toLocaleTimeString()+'</div>')+
+  const action=p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Connect rank provider</button>';
+  const providerNote=p.connected
+    ? '<div class="note"><span class="badge good">Connected</span> <b>DataForSEO Amazon Merchant API</b> · Pincode <b>'+esc(p.pincode)+'</b>'+(p.location?' · '+esc(p.location.location_name):' · location will resolve on the next check')+'. Organic results exclude sponsored placements; sponsored positions are stored separately.</div>'
+    : '<div class="note"><span class="dot"></span><b>Rank provider is not connected.</b> Go to Settings and connect DataForSEO before rank data can be collected.</div>';
+  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring',action)+
   '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median rank is the primary signal</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Search volume</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
-  '<div class="note"><span class="dot"></span><b>Rank provider not connected yet.</b> The dashboard/database are working. Real Amazon ranks will start appearing once we connect the SERP collector.</div>';
+  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Pincode</th><th>Search volume</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
+  if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
+    const b=$('runRankCheck');b.disabled=true;b.textContent='Checking Amazon…';
+    try{
+      const r=await api('/rank_check_now',{method:'POST',body:'{}'});
+      toast('Rank check complete: '+r.success+' success, '+r.failed+' failed');
+      await renderDashboard();
+    }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Run live rank check'}
+  };
 }
 
 async function renderProducts(){
@@ -170,11 +182,16 @@ async function renderReports(days=30){
 }
 
 async function renderSettings(){
-  const d=await api('/settings');const t=d.settings.tracking||{};const provider=d.settings.provider||{};
-  $('main').innerHTML=pageHead('Settings','Tracking consistency and provider configuration')+
-  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" value="'+esc(t.pincode||'380015')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times (IST)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+
-  '<div><div class="panel"><div class="panelhead"><b>Rank provider</b></div><div class="panelbody"><div class="metricline"><span>Status</span><b>'+esc(provider.status||'Not connected')+'</b></div><div class="metricline"><span>Provider</span><b>'+esc(provider.name||'—')+'</b></div><div class="metricline"><span>Marketplace</span><b>amazon.in</b></div></div></div><div class="note"><span class="dot"></span>The application is live, but Amazon SERP collection is still the remaining integration. Once connected, organic and sponsored ranks will populate automatically.</div></div></div>';
+  const [d,p]=await Promise.all([api('/settings'),api('/provider_status')]);const t=d.settings.tracking||{};
+  const providerPanel=p.connected
+    ? '<div class="panel"><div class="panelhead"><b>Rank provider</b><span class="badge good">Connected</span></div><div class="panelbody"><div class="metricline"><span>Provider</span><b>DataForSEO Amazon Merchant API</b></div><div class="metricline"><span>Marketplace</span><b>amazon.in</b></div><div class="metricline"><span>Pincode</span><b>'+esc(p.pincode)+'</b></div><div class="metricline"><span>Resolved location</span><b>'+esc(p.location?.location_name||'Will resolve on next check')+'</b></div><div class="actions"><button id="testRankNow" class="primary">Run live rank check now</button></div><div class="tiny" style="margin-top:10px">Each tracked keyword is checked against the exact Amazon postal-code location. Organic and sponsored results are stored separately.</div></div></div>'
+    : '<div class="panel"><div class="panelhead"><b>Connect rank provider</b><span class="badge warn">Required</span></div><div class="panelbody"><form id="providerForm"><label>DataForSEO API login</label><input class="field" name="login" autocomplete="off" required><label>DataForSEO API password</label><input class="field" name="password" type="password" autocomplete="new-password" required><div class="actions"><button class="primary">Connect & verify pincode '+esc(t.pincode||'380015')+'</button></div></form><div class="tiny" style="margin-top:10px">Credentials stay server-side in Supabase and are never returned to the browser.</div></div></div>';
+  $('main').innerHTML=pageHead('Settings','Tracking consistency, pincode and provider configuration')+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" inputmode="numeric" maxlength="6" value="'+esc(t.pincode||'380015')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times (IST)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+
+  '<div>'+providerPanel+'<div class="note"><b>Pincode is mandatory.</b> Every Amazon rank snapshot stores the pincode used for that check. Changing the pincode here changes the tracking location for all active rules.</div></div></div>';
   $('settingsForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));o.organic_schedule=String(o.organic_schedule).split(',').map(x=>x.trim()).filter(Boolean);o.sponsored_frequency_hours=Number(o.sponsored_frequency_hours);try{await api('/settings',{method:'POST',body:JSON.stringify(o)});toast('Settings saved');renderSettings()}catch(err){toast(err.message,true)}};
+  if($('providerForm')) $('providerForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;btn.textContent='Verifying provider + pincode…';try{const r=await api('/provider_connect',{method:'POST',body:JSON.stringify(o)});toast('Provider connected for '+r.location_name);renderSettings()}catch(err){toast(err.message,true);btn.disabled=false;btn.textContent='Connect & verify pincode'}};
+  if($('testRankNow')) $('testRankNow').onclick=async()=>{const b=$('testRankNow');b.disabled=true;b.textContent='Checking Amazon…';try{const r=await api('/rank_check_now',{method:'POST',body:'{}'});toast('Checked '+r.checked+' keyword pairs');navigate('dashboard')}catch(err){toast(err.message,true);b.disabled=false;b.textContent='Run live rank check now'}};
 }
 
 const renderers={dashboard:renderDashboard,products:renderProducts,keywords:renderKeywords,campaigns:renderCampaigns,advertising:renderAdvertising,alerts:renderAlerts,reports:renderReports,settings:renderSettings};
