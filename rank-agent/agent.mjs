@@ -4,7 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 
 const here=path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/,'$1'));
-const cfg=JSON.parse(fs.readFileSync(path.join(here,'agent-config.json'),'utf8'));
+const cfgText=fs.readFileSync(path.join(here,'agent-config.json'),'utf8').replace(/^\uFEFF/,'').trim();
+const cfg=JSON.parse(cfgText);
 const API=cfg.api;
 const TOKEN=cfg.token;
 
