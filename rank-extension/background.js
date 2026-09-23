@@ -1,3 +1,4 @@
+const EXT_VERSION='2026.09.23.4';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -240,9 +241,10 @@ async function runCheck(force=false){
   if(running) return {ok:false,message:'Already running'};
   running=true;
   let tab=null;
+  let conf=null;
   try{
-    await setStatus('Starting rank check…',{lastError:null});
-    const conf=await api('local_worker_config',{force});
+    await setStatus('Starting rank check… v'+EXT_VERSION,{lastError:null,extensionVersion:EXT_VERSION});
+    conf=await api('local_worker_config',{force});
     if(conf.mode==='skip'){
       await setStatus('No rank check due.');
       return {ok:true,skipped:true};
@@ -303,7 +305,33 @@ async function runCheck(force=false){
     });
     return {ok:true,...stored};
   }catch(e){
-    await setStatus('Failed: '+(e?.message||String(e)),{lastError:e?.message||String(e)});
+    const err=e?.message||String(e);
+    await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
+    if(conf?.rules?.length){
+      const failedResults=conf.rules.map(r=>({
+        rule_id:r.rule_id,
+        asin:r.asin,
+        keyword:r.keyword,
+        pincode:r.pincode,
+        device:r.device,
+        checked_at:new Date().toISOString(),
+        status:'FAILED',
+        error:'SETUP '+err
+      }));
+      try{
+        await api('local_worker_ingest',{
+          method:'POST',
+          body:{
+            run_id:'edge-extension-debug-'+Date.now(),
+            mode:conf.mode,
+            request_id:conf.request_id||null,
+            provider:'browser-extension',
+            provider_name:'Zipify Edge Rank Extension',
+            results:failedResults
+          }
+        });
+      }catch{}
+    }
     throw e;
   }finally{
     running=false;
