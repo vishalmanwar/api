@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 
+// Free Amazon rank worker probe.
 const keyword = process.env.RANK_KEYWORD || 'zip lock bag';
 const asin = (process.env.RANK_ASIN || 'B0CZNM35RC').toUpperCase();
 const pincode = process.env.RANK_PINCODE || '380015';
