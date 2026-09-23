@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.23.4';
+const EXT_VERSION='2026.09.23.5';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -162,7 +162,7 @@ async function setPincode(tabId,pincode){
 
   const verify=await amazonSnapshot(tabId);
   if(!String(verify.location||'').includes(String(pincode))){
-    throw new Error('Amazon did not keep pincode '+pincode+'. Header: '+(verify.location||''));
+    throw new Error('MANUAL_PINCODE_REQUIRED|'+pincode+'|'+(verify.location||''));
   }
   return verify.location;
 }
@@ -306,7 +306,19 @@ async function runCheck(force=false){
     return {ok:true,...stored};
   }catch(e){
     const err=e?.message||String(e);
-    await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
+    if(err.startsWith('MANUAL_PINCODE_REQUIRED|')){
+      const parts=err.split('|');
+      const wanted=parts[1]||'380015';
+      const current=parts.slice(2).join('|')||'unknown';
+      await setStatus('Action needed v'+EXT_VERSION+': Amazon is overriding the delivery pincode. In the Amazon tab, click Update location, enter '+wanted+', click Apply, and confirm the header shows '+wanted+'. Then click Run now again. Current header: '+current,{lastError:err,extensionVersion:EXT_VERSION,needsManualPincode:true});
+      // Keep the Amazon tab open and make it visible so the user can correct location once.
+      if(tab?.id){
+        await chrome.tabs.update(tab.id,{active:true}).catch(()=>{});
+        tab=null;
+      }
+    }else{
+      await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
+    }
     if(conf?.rules?.length){
       const failedResults=conf.rules.map(r=>({
         rule_id:r.rule_id,
