@@ -1,0 +1,11 @@
+{
+  "name": "zipify-rank-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "rank:probe": "node rank-bot/probe.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.55.0"
+  }
+}
