@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zipify Rank Intelligence</title>
+<meta name="description" content="Amazon keyword rank and sponsored visibility dashboard for Zipify.">
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f7f7f5}
+*{box-sizing:border-box}body{margin:0}.hidden{display:none!important}
+.login-shell{min-height:100vh;display:grid;place-items:center;padding:22px}.login-card{width:min(410px,100%);background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.05)}
+.logo{font-size:19px;font-weight:750;margin-bottom:5px}.sub{color:#737373;font-size:13px;line-height:1.45;margin-bottom:24px}
+label{font-size:12px;font-weight:650;display:block;margin:14px 0 6px}input{width:100%;padding:11px 12px;border:1px solid #d8d8d8;border-radius:8px;font:inherit;outline:none}input:focus{border-color:#777}
+button{font:inherit;cursor:pointer}.primary{width:100%;margin-top:20px;padding:11px;border:0;border-radius:8px;background:#171717;color:#fff;font-weight:650}
+.err{background:#fff1f1;color:#9b2c2c;border:1px solid #f1cccc;padding:9px 10px;border-radius:7px;font-size:12px;margin-bottom:12px}
+.layout{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+aside{background:#111;color:#d2d2d2;padding:26px 18px;position:sticky;top:0;height:100vh}.brand{font-weight:740;color:#fff;font-size:17px;margin-bottom:28px}.nav{display:grid;gap:6px}.nav div{padding:9px 10px;border-radius:7px;font-size:13px}.nav .active{background:#242424;color:#fff}.aside-foot{position:absolute;bottom:20px;left:18px;right:18px}.logout{width:100%;border:1px solid #333;background:transparent;color:#bbb;border-radius:7px;padding:8px}
+main{padding:34px 38px;max-width:1500px;width:100%}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;gap:20px}.top h1{font-size:24px;margin:0}.muted{color:#737373;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:22px}.stat{background:#fff;border:1px solid #e7e7e7;border-radius:10px;padding:16px}.stat b{display:block;font-size:25px;margin-top:6px}.stat span{font-size:11px;color:#737373;text-transform:uppercase;letter-spacing:.04em}
+.panel{background:#fff;border:1px solid #e7e7e7;border-radius:10px;overflow:hidden}.panelhead{padding:16px 18px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;gap:15px}
+.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:12px 14px;border-bottom:1px solid #f0f0f0;white-space:nowrap}th{font-size:11px;text-transform:uppercase;color:#737373;font-weight:600;background:#fcfcfc}
+.badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:650;background:#f1f1f1}.good{background:#eaf6ee;color:#287442}.warn{background:#fff5d8;color:#8a6410}.bad{background:#fdeaea;color:#a33}
+.empty{color:#999}.loader{padding:28px;color:#777}.note{margin-top:16px;padding:13px 15px;border:1px solid #e7e7e7;border-radius:9px;background:#fff;font-size:13px;color:#666;line-height:1.45}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#b45309;margin-right:7px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}aside{display:none}main{padding:22px 14px}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<section id="login" class="login-shell">
+  <form id="loginForm" class="login-card">
+    <div class="logo">Zipify Rank Intelligence</div>
+    <div class="sub">Private Amazon India search visibility dashboard.</div>
+    <div id="loginError" class="err hidden">Incorrect username or password.</div>
+    <label for="username">Username</label>
+    <input id="username" autocomplete="username" value="vishal" required>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required autofocus>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</section>
+
+<section id="app" class="layout hidden">
+  <aside>
+    <div class="brand">Zipify Rank Intelligence</div>
+    <div class="nav">
+      <div class="active">Dashboard</div><div>Products</div><div>Keywords</div>
+      <div>Ranking Campaigns</div><div>Advertising</div><div>Alerts</div>
+      <div>Reports</div><div>Settings</div>
+    </div>
+    <div class="aside-foot"><button id="logout" class="logout">Sign out</button></div>
+  </aside>
+  <main>
+    <div class="top">
+      <div><h1>Search visibility</h1><div class="muted">Amazon India · rank monitoring</div></div>
+      <div class="muted" id="updated"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Tracked ASINs</span><b id="products">—</b></div>
+      <div class="stat"><span>Tracked Keywords</span><b id="keywords">—</b></div>
+      <div class="stat"><span>Rank Warnings</span><b id="rankWarnings">—</b></div>
+      <div class="stat"><span>Sponsored Warnings</span><b id="sponsoredWarnings">—</b></div>
+    </div>
+    <div class="panel">
+      <div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median rank is the primary signal</span></div>
+      <div id="content" class="loader">Loading…</div>
+    </div>
+    <div class="note"><span class="dot"></span><b>Rank provider not connected yet.</b> Your dashboard and database are live. Real Amazon organic and sponsored positions will appear here after the SERP provider is connected.</div>
+  </main>
+</section>
+
+<script>
+const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function authHeader(){
+  const raw=sessionStorage.getItem('zri_auth');
+  return raw?{'Authorization':'Basic '+raw}:{};
+}
+function showLogin(){
+  $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('password').value='';
+}
+function showApp(){
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+}
+async function loadDashboard(){
+  $('content').innerHTML='<div class="loader">Loading…</div>';
+  try{
+    const r=await fetch(API+'/dashboard',{headers:authHeader()});
+    if(r.status===401){sessionStorage.removeItem('zri_auth');showLogin();$('loginError').classList.remove('hidden');return false}
+    if(!r.ok) throw new Error('API error '+r.status);
+    const d=await r.json();
+    $('products').textContent=d.summary.products; $('keywords').textContent=d.summary.keywords;
+    $('rankWarnings').textContent=d.summary.rank_warnings; $('sponsoredWarnings').textContent=d.summary.sponsored_warnings;
+    $('updated').textContent='Updated '+new Date().toLocaleTimeString();
+    const rows=d.rows.map(x=>{
+      const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
+      const sponsored=x.sponsored_position==null?'<span class="empty">No data</span>':'#'+x.sponsored_position;
+      const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank<=x.critical_rank?'Warning':'Critical'));
+      const cls=status==='On target'?'good':status==='Warning'?'warn':status==='Critical'?'bad':'';
+      return '<tr><td><b>'+esc(x.product_name)+'</b><div class="muted">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+(x.sponsored_visibility==null?'—':x.sponsored_visibility+'%')+'</td><td><span class="badge '+cls+'">'+status+'</span></td></tr>';
+    }).join('');
+    $('content').innerHTML='<div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Search volume</th><th>Organic rank</th><th>Target</th><th>Sponsored</th><th>Sponsored visibility</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    return true;
+  }catch(e){
+    $('content').innerHTML='<div class="loader">Unable to reach the dashboard API. Please refresh in a moment.</div>';
+    return false;
+  }
+}
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault(); $('loginError').classList.add('hidden');
+  const user=$('username').value.trim(), pass=$('password').value;
+  sessionStorage.setItem('zri_auth',btoa(user+':'+pass));
+  showApp();
+  const ok=await loadDashboard();
+  if(!ok && !sessionStorage.getItem('zri_auth')) showLogin();
+});
+$('logout').addEventListener('click',()=>{sessionStorage.removeItem('zri_auth');showLogin()});
+if(sessionStorage.getItem('zri_auth')){showApp();loadDashboard()}else showLogin();
+</script>
+</body>
+</html>
