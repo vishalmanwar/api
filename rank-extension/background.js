@@ -79,45 +79,84 @@ async function setPincode(tabId,pincode){
   const snap=await amazonSnapshot(tabId);
   if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
 
-  const [result]=await chrome.scripting.executeScript({
+  // Open Amazon's normal Update location dialog.
+  const [openRes]=await chrome.scripting.executeScript({
     target:{tabId},
     world:'MAIN',
-    func:async(zip)=>{
-      const body=new URLSearchParams({
-        locationType:'LOCATION_INPUT',
-        zipCode:zip,
-        storeContext:'generic',
-        deviceType:'web',
-        pageType:'Gateway',
-        actionSource:'glow'
-      });
-      const r=await fetch('/gp/delivery/ajax/address-change.html',{
-        method:'POST',
-        credentials:'include',
-        headers:{
-          'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
-          'X-Requested-With':'XMLHttpRequest'
-        },
-        body:body.toString()
-      });
-      const text=await r.text();
-      let json=null; try{json=JSON.parse(text)}catch{}
-      return {ok:r.ok,status:r.status,json,text:text.slice(0,600)};
+    func:()=>{
+      const el=document.querySelector('#nav-global-location-popover-link') ||
+               document.querySelector('#glow-ingress-block') ||
+               document.querySelector('[data-action="a-popover"] #glow-ingress-block');
+      if(!el) return {ok:false,reason:'Update location control not found'};
+      el.click();
+      return {ok:true};
+    }
+  });
+  if(!openRes?.result?.ok) throw new Error('Amazon location dialog could not open: '+(openRes?.result?.reason||'unknown'));
+
+  await sleep(1400);
+
+  const [setRes]=await chrome.scripting.executeScript({
+    target:{tabId},
+    world:'MAIN',
+    func:(zip)=>{
+      const input=document.querySelector('#GLUXZipUpdateInput') ||
+                  document.querySelector('input[data-action="GLUXPostalInputAction"]') ||
+                  document.querySelector('input[placeholder*="pincode" i]') ||
+                  document.querySelector('input[placeholder*="postal" i]');
+      if(!input) return {ok:false,reason:'Pincode input not found'};
+
+      input.focus();
+      input.value='';
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.value=zip;
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+
+      const apply=document.querySelector('#GLUXZipUpdate') ||
+                  document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]') ||
+                  [...document.querySelectorAll('input,button')].find(el=>{
+                    const t=(el.value||el.textContent||'').trim();
+                    return /apply|update/i.test(t);
+                  });
+      if(!apply) return {ok:false,reason:'Apply/Update button not found'};
+      apply.click();
+      return {ok:true};
     },
     args:[pincode]
   });
 
-  const r=result?.result||{};
-  const accepted=String(r?.json?.address?.zipCode||'')===String(pincode) &&
-    (r?.json?.sembuUpdated===1 || r?.json?.sembuUpdated===true);
-  if(!r.ok || !accepted) throw new Error('Amazon rejected pincode '+pincode+'.');
+  if(!setRes?.result?.ok) throw new Error('Amazon location dialog failed: '+(setRes?.result?.reason||'unknown'));
 
+  await sleep(1800);
+
+  // Some Amazon sessions show a second Done/Continue confirmation.
+  await chrome.scripting.executeScript({
+    target:{tabId},
+    world:'MAIN',
+    func:()=>{
+      const selectors=['#GLUXConfirmClose','button[name="glowDoneButton"]','input[name="glowDoneButton"]'];
+      for(const sel of selectors){
+        const el=document.querySelector(sel);
+        if(el){el.click();return true;}
+      }
+      const fallback=[...document.querySelectorAll('button,input')].find(el=>{
+        const t=(el.value||el.textContent||'').trim();
+        return /continue|done/i.test(t);
+      });
+      if(fallback){fallback.click();return true;}
+      return false;
+    }
+  }).catch(()=>{});
+
+  await sleep(1400);
   await chrome.tabs.reload(tabId);
   await waitTabComplete(tabId,60000);
-  await sleep(1500);
+  await sleep(1800);
+
   const verify=await amazonSnapshot(tabId);
   if(!String(verify.location||'').includes(String(pincode))){
-    throw new Error('Pincode '+pincode+' was accepted but not visible in Amazon header. Header: '+(verify.location||''));
+    throw new Error('Amazon did not keep pincode '+pincode+'. Header: '+(verify.location||''));
   }
   return verify.location;
 }
