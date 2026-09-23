@@ -33,6 +33,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: amazon-rank-probe
-          path: rank-probe.png
+          path: rank-*.png
           if-no-files-found: ignore
           retention-days: 1
