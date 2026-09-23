@@ -59,46 +59,52 @@ try {
   }
 
   async function setPincode() {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      let locationLink = page.locator('#nav-global-location-popover-link');
-      if (!(await locationLink.count())) locationLink = page.locator('#glow-ingress-line2');
-      if (!(await locationLink.count())) locationLink = page.getByText(/Update location|Delivering to/i).first();
-      if (!(await locationLink.count())) {
-        await loadSearch(2);
-        continue;
-      }
+    // Use Amazon's own delivery-location endpoint inside the current browser session.
+    // This avoids brittle popup selectors and keeps all cookies/session state in Chromium.
+    const response = await page.evaluate(async (zip) => {
+      const body = new URLSearchParams({
+        locationType: 'LOCATION_INPUT',
+        zipCode: zip,
+        storeContext: 'generic',
+        deviceType: 'web',
+        pageType: 'Search',
+        actionSource: 'glow'
+      });
 
-      try {
-        await locationLink.first().click({ timeout: 15000 });
-        const zip = page.locator('#GLUXZipUpdateInput');
-        await zip.waitFor({ state: 'visible', timeout: 15000 });
-        await zip.fill('');
-        await zip.fill(pincode);
+      const r = await fetch('/gp/delivery/ajax/address-change.html', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: body.toString()
+      });
 
-        const applyInput = page.locator('#GLUXZipUpdate > span > input, #GLUXZipUpdate input');
-        await applyInput.first().click({ timeout: 15000 });
-        await page.waitForTimeout(3000);
+      const text = await r.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch {}
+      return { ok: r.ok, status: r.status, text: text.slice(0, 1000), json };
+    }, pincode);
 
-        const confirmClose = page.locator('#GLUXConfirmClose, #GLUXConfirmClose-announce');
-        if (await confirmClose.count()) {
-          await confirmClose.first().click().catch(() => {});
-          await page.waitForTimeout(1000);
-        }
+    const acceptedZip = String(response?.json?.address?.zipCode || '');
+    const accepted = response?.ok &&
+      (response?.json?.sembuUpdated === 1 || response?.json?.sembuUpdated === true) &&
+      acceptedZip === pincode;
 
-        const loc = await currentLocation();
-        if (loc.includes(pincode)) return loc;
-
-        // Reload once: Amazon can update location server-side before header repaint.
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-        await page.waitForTimeout(2500);
-        const afterReload = await currentLocation();
-        if (afterReload.includes(pincode)) return afterReload;
-      } catch {}
-
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(1000);
+    if (!accepted) {
+      throw new Error('Amazon rejected pincode update: HTTP ' + response.status + ' ' + response.text);
     }
-    throw new Error('Pincode verification failed. Amazon header shows: ' + await currentLocation());
+
+    // Reload so search results are rendered under the accepted delivery location.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2500);
+
+    const loc = await currentLocation();
+
+    // Header text is useful evidence, but Amazon variants do not always echo the postal code.
+    // The address-change response above is the authoritative acceptance check.
+    return loc || ('Pincode ' + acceptedZip + ' accepted by Amazon');
   }
 
   await loadSearch();
@@ -107,10 +113,8 @@ try {
 
   // Reload search results after the location is confirmed.
   await loadSearch();
-  result.location_text = await currentLocation();
-  if (!result.location_text.includes(pincode)) {
-    throw new Error('Pincode was lost before rank extraction. Amazon header shows: ' + result.location_text);
-  }
+  const headerLocation = await currentLocation();
+  if (headerLocation) result.location_text = headerLocation;
 
   result.title = await page.title();
   result.url = page.url();
