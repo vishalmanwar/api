@@ -36,6 +36,7 @@ try {
   const searchUrl = 'https://www.amazon.in/s?k=' + encodeURIComponent(keyword);
   await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(2500);
+  await page.screenshot({ path: 'rank-initial.png', fullPage: false }).catch(() => {});
 
   // Set delivery location using the same UI an Amazon shopper uses.
   let locationLink = page.locator('#nav-global-location-popover-link');
