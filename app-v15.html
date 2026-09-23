@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.23.15</span></div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.23.16</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -101,23 +101,28 @@ async function renderDashboard(){
   const [d,p]=await Promise.all([api('/dashboard'),api('/provider_status')]);
   const rows=d.rows.map(x=>{
     const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
-    const sponsored=x.sponsored_position==null?'<span class="empty">No data</span>':'#'+x.sponsored_position;
+    const sponsored=x.sponsored_position!=null
+      ? '#'+x.sponsored_position
+      : (x.latest_check_status==='SUCCESS' && x.sponsored_found===false
+          ? '<span class="empty">Not found</span>'
+          : '<span class="empty">No data</span>');
     const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank<=x.critical_rank?'Warning':'Critical'));
-    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td></tr>';
+    const lastChecked=x.latest_checked_at?new Date(x.latest_checked_at).toLocaleString():'—';
+    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
   }).join('');
   const action=p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up free rank agent</button>';
   const providerNote=p.connected
-    ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Local Playwright Agent')+'</b> · Pincode <b>'+esc(p.pincode)+'</b>'+(p.location?' · '+esc(p.location.location_name):'')+'. Organic and sponsored positions are collected separately.</div>'
-    : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and install the free Windows rank agent. It uses your normal internet connection so Amazon does not block the checks like cloud runners.</div>';
+    ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Edge Rank Extension')+'</b> · Pincode <b>'+esc(p.pincode)+'</b>. Every successful check is saved as a historical snapshot; new checks do not overwrite older ranks.</div>'
+    : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>';
   $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring',action)+
   '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Pincode</th><th>Search volume</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Pincode</th><th>Search volume</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Last checked</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
   if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
   if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
     const b=$('runRankCheck');b.disabled=true;b.textContent='Queueing check…';
     try{
-      const r=await api('/rank_check_now',{method:'POST',body:'{}'});
-      toast('Rank check queued. Local agent will pick it up within 5 minutes.');
+      await api('/rank_check_now',{method:'POST',body:'{}'});
+      toast('Rank check queued. Keep Amazon.in open with pincode 380015; the Edge extension will process it.');
       b.textContent='Queued';
       setTimeout(()=>renderDashboard(),4000);
     }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Run live rank check'}
@@ -174,11 +179,20 @@ async function renderAlerts(){
 }
 
 async function renderReports(days=30){
-  const d=await api('/reports?days='+days);
+  const [d,h]=await Promise.all([api('/reports?days='+days),api('/rank_history?days='+days)]);
   const rows=d.rows.length?d.rows.slice().reverse().slice(0,150).map(x=>'<tr><td>'+dateFmt(x.metric_date)+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+(x.median_organic_rank==null?'—':'#'+x.median_organic_rank)+'</td><td>'+(x.best_organic_rank==null?'—':'#'+x.best_organic_rank)+'</td><td>'+(x.worst_organic_rank==null?'—':'#'+x.worst_organic_rank)+'</td><td>'+pct(x.sponsored_visibility_pct)+'</td></tr>').join(''):'';
-  $('main').innerHTML=pageHead('Reports','Organic and sponsored visibility history','<select id="reportDays" class="field" style="width:auto"><option value="7">7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
+
+  const historyRows=(h.rows||[]).slice(0,300).map(x=>{
+    const success=x.check_status==='SUCCESS';
+    const organic=success?(x.organic_rank==null?'Not found':'#'+x.organic_rank):'—';
+    const sponsored=success?(x.sponsored_found?(x.sponsored_position==null?'Found':'#'+x.sponsored_position):'Not found'):'—';
+    return '<tr><td>'+esc(new Date(x.checked_at).toLocaleString())+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||'—')+'</td><td>'+organic+'</td><td>'+sponsored+'</td><td>'+(x.organic_page??'—')+'</td><td>'+(x.organic_absolute_position??'—')+'</td><td><span class="badge '+(success?'good':'bad')+'">'+esc(x.check_status)+'</span></td></tr>';
+  }).join('');
+
+  $('main').innerHTML=pageHead('Reports','Stored organic and sponsored rank history','<select id="reportDays" class="field" style="width:auto"><option value="7" '+(days==7?'selected':'')+'>7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
   '<div class="stats"><div class="stat"><span>Rank observations</span><b>'+d.summary.ranked_observations+'</b></div><div class="stat"><span>Average rank</span><b>'+(d.summary.average_rank==null?'—':'#'+Number(d.summary.average_rank).toFixed(1))+'</b></div><div class="stat"><span>Top 4 visibility</span><b>'+pct(d.summary.top4_pct)+'</b></div><div class="stat"><span>Sponsored visibility</span><b>'+pct(d.summary.sponsored_visibility_avg)+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Daily metrics</b></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Reports will populate after rank collection begins.'))+'</div>';
+  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">Every check is stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Run the Edge rank extension to collect rank history.'))+'</div>'+
+  '<div class="panel"><div class="panelhead"><b>Daily metrics</b><span class="muted">Daily median / best / worst</span></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Reports will populate after rank collection begins.'))+'</div>';
   $('reportDays').onchange=e=>renderReports(Number(e.target.value));
 }
 
