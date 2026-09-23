@@ -2,6 +2,10 @@ name: Free Amazon Rank Probe
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["master"]
+    paths:
+      - "rank-bot/probe.mjs"
 
 jobs:
   probe:
