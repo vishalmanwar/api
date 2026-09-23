@@ -24,8 +24,8 @@ $raw = "https://raw.githubusercontent.com/vishalmanwar/api/master"
 Invoke-WebRequest "$raw/rank-agent/agent.mjs" -OutFile (Join-Path $dir "agent.mjs")
 Invoke-WebRequest "$raw/package.json" -OutFile (Join-Path $dir "package.json")
 
-@{ api = "https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence"; token = $AgentToken } |
-  ConvertTo-Json | Set-Content (Join-Path $dir "agent-config.json") -Encoding UTF8
+$json = @{ api = "https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence"; token = $AgentToken } | ConvertTo-Json
+[System.IO.File]::WriteAllText((Join-Path $dir "agent-config.json"), $json, (New-Object System.Text.UTF8Encoding($false)))
 
 Push-Location $dir
 & $npmPath install
