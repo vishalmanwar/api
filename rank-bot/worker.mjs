@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 
+// Production validation trigger.
 const config = JSON.parse(fs.readFileSync('rank-config.json','utf8'));
 const attempt = Number(process.env.WORKER_ATTEMPT || 1);
 const runId = String(process.env.GITHUB_RUN_ID || '');
