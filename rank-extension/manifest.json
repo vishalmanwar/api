@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Zipify Rank Agent",
-  "version": "1.0.7",
+  "version": "1.0.10",
   "description": "Free Amazon.in rank collector for Zipify Rank Intelligence.",
   "permissions": [
     "storage",
     "alarms",
     "tabs",
-    "scripting",
-    "debugger"
+    "scripting"
   ],
   "host_permissions": [
     "https://www.amazon.in/*",
