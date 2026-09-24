@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.23.8';
+const EXT_VERSION='2026.09.23.9';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -255,7 +255,8 @@ async function runCheck(force=false){
     }else{
       await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
     }
-    if(conf?.rules?.length){
+    const setupPincodeIssue=/manually set delivery pincode|Current header:|No Amazon\.in tab found/i.test(err);
+    if(conf?.rules?.length && !setupPincodeIssue){
       const failedResults=conf.rules.map(r=>({
         rule_id:r.rule_id,
         asin:r.asin,
@@ -280,6 +281,7 @@ async function runCheck(force=false){
         });
       }catch{}
     }
+    if(setupPincodeIssue) return {ok:false,needsPincode:true,message:err};
     throw e;
   }finally{
     running=false;
