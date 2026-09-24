@@ -423,7 +423,7 @@ async function runCheck(force=false){
         const isRecovery=String(a.severity||'')==='recovery';
         await chrome.notifications.create('zipify-rank-'+String(a.id||Date.now())+'-'+Math.random(),{
           type:'basic',
-          iconUrl:'icon128.png',
+          iconUrl:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="%23171717"/><text x="64" y="82" text-anchor="middle" font-family="Arial" font-size="64" font-weight="700" fill="white">Z</text></svg>'),
           title:String(a.title||'Zipify Rank Alert'),
           message:String(a.message||''),
           priority:isRecovery?0:2
