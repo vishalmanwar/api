@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.20-opera-stable';
+const EXT_VERSION='2026.09.24.23-opera-complete';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=1;
@@ -417,9 +417,23 @@ async function runCheck(force=false){
     });
 
     await chrome.storage.local.remove('retryAfter');
+
+    if(Array.isArray(stored.alerts) && stored.alerts.length){
+      for(const a of stored.alerts.slice(0,5)){
+        const isRecovery=String(a.severity||'')==='recovery';
+        await chrome.notifications.create('zipify-rank-'+String(a.id||Date.now())+'-'+Math.random(),{
+          type:'basic',
+          iconUrl:'icon128.png',
+          title:String(a.title||'Zipify Rank Alert'),
+          message:String(a.message||''),
+          priority:isRecovery?0:2
+        }).catch(()=>{});
+      }
+    }
+
     await setStatus(
       stored.failed===0
-        ? 'Completed: '+stored.success+'/'+stored.total+' successful.'
+        ? 'Completed: '+stored.success+'/'+stored.total+' successful.'+(stored.alerts?.length?' '+stored.alerts.length+' alert update(s).':'')
         : 'Completed with errors: '+stored.success+' successful, '+stored.failed+' failed.',
       {lastRunAt:new Date().toISOString(),lastSuccess:stored.success,lastFailed:stored.failed,lastRunId:runId}
     );
