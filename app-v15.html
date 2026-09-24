@@ -360,8 +360,6 @@ async function renderSettings(){
   };
 }
 
-const renderers=
-
 const renderers={dashboard:renderDashboard,products:renderProducts,keywords:renderKeywords,campaigns:renderCampaigns,advertising:renderAdvertising,alerts:renderAlerts,reports:renderReports,settings:renderSettings};
 async function navigate(view){
   if(!renderers[view])view='dashboard';setNav(view);location.hash=view;$('main').innerHTML='<div class="loader">Loading…</div>';
