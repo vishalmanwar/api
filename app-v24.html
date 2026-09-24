@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zipify Rank Intelligence</title>
+<meta name="description" content="Amazon keyword rank and sponsored visibility dashboard for Zipify.">
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f7f7f5}
+*{box-sizing:border-box}body{margin:0}.hidden{display:none!important}button,input,select{font:inherit}
+.login-shell{min-height:100vh;display:grid;place-items:center;padding:22px}.login-card{width:min(410px,100%);background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.05)}
+.logo{font-size:19px;font-weight:750;margin-bottom:5px}.sub{color:#737373;font-size:13px;line-height:1.45;margin-bottom:24px}
+label{font-size:12px;font-weight:650;display:block;margin:13px 0 6px}.field{width:100%;padding:10px 11px;border:1px solid #d8d8d8;border-radius:8px;background:#fff;color:#171717;outline:none}.field:focus{border-color:#777}
+button{cursor:pointer}.primary{padding:10px 14px;border:0;border-radius:8px;background:#171717;color:#fff;font-weight:650}.secondary{padding:9px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#222}.danger{color:#9b2c2c}
+.login-card .primary{width:100%;margin-top:20px}.err{background:#fff1f1;color:#9b2c2c;border:1px solid #f1cccc;padding:9px 10px;border-radius:7px;font-size:12px;margin-bottom:12px}
+.layout{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+aside{background:#111;color:#d2d2d2;padding:26px 15px;position:sticky;top:0;height:100vh}.brand{font-weight:740;color:#fff;font-size:17px;margin:0 4px 28px}.nav{display:grid;gap:5px}.nav button{border:0;background:transparent;color:#c9c9c9;text-align:left;padding:9px 10px;border-radius:7px;font-size:13px}.nav button:hover{background:#1c1c1c;color:#fff}.nav button.active{background:#242424;color:#fff}.aside-foot{position:absolute;bottom:20px;left:15px;right:15px}.logout{width:100%;border:1px solid #333;background:transparent;color:#bbb;border-radius:7px;padding:8px}
+main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:20px}.top h1{font-size:24px;margin:0 0 3px}.muted{color:#737373;font-size:13px}.tiny{font-size:11px;color:#888}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}.stat{background:#fff;border:1px solid #e7e7e7;border-radius:10px;padding:16px}.stat b{display:block;font-size:25px;margin-top:6px}.stat span{font-size:11px;color:#737373;text-transform:uppercase;letter-spacing:.04em}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,390px);gap:16px;align-items:start}.panel{background:#fff;border:1px solid #e7e7e7;border-radius:10px;overflow:hidden;margin-bottom:16px}.panelhead{padding:15px 17px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;gap:15px}.panelbody{padding:16px 17px}
+.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:12px 14px;border-bottom:1px solid #f0f0f0;white-space:nowrap}th{font-size:10px;text-transform:uppercase;color:#737373;font-weight:650;background:#fcfcfc;letter-spacing:.035em}
+.badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:650;background:#f1f1f1}.good{background:#eaf6ee;color:#287442}.warn{background:#fff5d8;color:#8a6410}.bad{background:#fdeaea;color:#a33}.blue{background:#eaf1ff;color:#2f5eae}
+.empty{color:#999}.loader{padding:28px;color:#777}.note{margin-top:15px;padding:12px 14px;border:1px solid #e7e7e7;border-radius:9px;background:#fff;font-size:13px;color:#666;line-height:1.45}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#b45309;margin-right:7px}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}.formgrid .full{grid-column:1/-1}.actions{display:flex;gap:8px;align-items:center;margin-top:14px}.btn-sm{padding:6px 9px;border:1px solid #ddd;border-radius:7px;background:#fff;font-size:12px}.btn-sm:hover{background:#f6f6f6}
+.empty-state{padding:35px 20px;text-align:center;color:#777}.empty-state b{display:block;color:#333;margin-bottom:5px}.section-title{font-size:16px;font-weight:700}.metricline{display:flex;justify-content:space-between;gap:20px;padding:9px 0;border-bottom:1px solid #f1f1f1}.metricline:last-child{border-bottom:0}.toast{position:fixed;right:20px;bottom:20px;background:#171717;color:#fff;padding:11px 14px;border-radius:9px;font-size:13px;box-shadow:0 8px 25px rgba(0,0,0,.2);z-index:50}.toast.error{background:#8f2929}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:780px){.layout{grid-template-columns:1fr}aside{position:relative;height:auto}.nav{grid-template-columns:repeat(2,1fr)}.aside-foot{position:static;margin-top:15px}main{padding:22px 12px}.stats{grid-template-columns:repeat(2,1fr)}.formgrid{grid-template-columns:1fr}.formgrid .full{grid-column:auto}}
+</style>
+</head>
+<body>
+<section id="login" class="login-shell">
+  <form id="loginForm" class="login-card">
+    <div class="logo">Zipify Rank Intelligence</div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.24.24</span></div>
+    <div id="loginError" class="err hidden">Incorrect username or password.</div>
+    <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
+    <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</section>
+
+<section id="app" class="layout hidden">
+  <aside>
+    <div class="brand">Zipify Rank<br>Intelligence</div>
+    <div class="nav" id="nav">
+      <button data-view="dashboard">Dashboard</button>
+      <button data-view="products">Products</button>
+      <button data-view="keywords">Keywords</button>
+      <button data-view="campaigns">Ranking Campaigns</button>
+      <button data-view="advertising">Advertising</button>
+      <button data-view="alerts">Alerts</button>
+      <button data-view="reports">Reports</button>
+      <button data-view="settings">Settings</button>
+    </div>
+    <div class="aside-foot"><button id="logout" class="logout">Sign out</button></div>
+  </aside>
+  <main id="main"><div class="loader">Loading…</div></main>
+</section>
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
+const num=n=>new Intl.NumberFormat('en-IN').format(Number(n||0));
+const pct=n=>n==null?'—':Number(n).toFixed(1)+'%';
+const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—';
+const dateTimeFmt=v=>v?new Date(v).toLocaleString('en-IN'):'—';
+function parseCsv(text){
+  const rows=[];let row=[],field='',quoted=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],next=text[i+1];
+    if(ch==='"'){
+      if(quoted&&next==='"'){field+='"';i++;}else quoted=!quoted;
+    }else if(ch===','&&!quoted){row.push(field);field='';}
+    else if((ch==='\n'||ch==='\r')&&!quoted){
+      if(ch==='\r'&&next==='\n')i++;
+      row.push(field);field='';
+      if(row.some(x=>String(x).trim()!==''))rows.push(row);
+      row=[];
+    }else field+=ch;
+  }
+  if(field||row.length){row.push(field);if(row.some(x=>String(x).trim()!==''))rows.push(row);}
+  if(rows.length<2)return [];
+  const headers=rows[0].map(h=>String(h).trim());
+  return rows.slice(1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,String(r[i]??'').trim()])));
+}
+function normalizeKey(s){return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
+function firstField(row,aliases){
+  const map=new Map(Object.entries(row).map(([k,v])=>[normalizeKey(k),v]));
+  for(const a of aliases){const v=map.get(normalizeKey(a));if(v!==undefined&&String(v).trim()!=='')return String(v).trim()}
+  return '';
+}
+function cleanNumber(v){
+  const n=Number(String(v||'').replace(/[^0-9.-]/g,''));
+  return Number.isFinite(n)?n:0;
+}
+function normalizeAdDate(v){
+  const s=String(v||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  const d=new Date(s);
+  if(Number.isNaN(d.getTime()))return '';
+  return d.toISOString().slice(0,10);
+}
+function adRowsFromCsv(text){
+  return parseCsv(text).map(r=>({
+    metric_date:normalizeAdDate(firstField(r,['Date','Start Date','Start date'])),
+    campaign_name:firstField(r,['Campaign Name','Campaign']),
+    campaign_id:firstField(r,['Campaign ID','Campaign Id']),
+    ad_group_name:firstField(r,['Ad Group Name','Ad group name']),
+    ad_group_id:firstField(r,['Ad Group ID','Ad group ID']),
+    target:firstField(r,['Targeting','Keyword','Customer Search Term','Search Term','Target']),
+    keyword:firstField(r,['Keyword','Targeting']),
+    match_type:firstField(r,['Match Type','Match type']),
+    asin:firstField(r,['Advertised ASIN','Advertised Asin','ASIN','Asin']),
+    impressions:cleanNumber(firstField(r,['Impressions'])),
+    clicks:cleanNumber(firstField(r,['Clicks'])),
+    spend:cleanNumber(firstField(r,['Spend','Cost'])),
+    orders:cleanNumber(firstField(r,['Purchases','Orders','7 Day Total Orders (#)','7-day total orders'])),
+    units:cleanNumber(firstField(r,['Units','Units Sold','7 Day Total Units (#)','7-day total units'])),
+    sales:cleanNumber(firstField(r,['Sales','7 Day Total Sales','7-day total sales']))
+  })).filter(r=>r.metric_date);
+}
+
+
+function authHeader(){const token=sessionStorage.getItem('zri_session');return token?{'X-Zipify-Session':token}:{}}
+function showLogin(){ $('app').classList.add('hidden');$('login').classList.remove('hidden');$('password').value=''}
+function showApp(){ $('login').classList.add('hidden');$('app').classList.remove('hidden')}
+function toast(msg,error=false){const t=$('toast');t.textContent=msg;t.className='toast'+(error?' error':'');setTimeout(()=>t.classList.add('hidden'),2600)}
+function apiUrl(path){
+  const parts=String(path||'').split('?');
+  const clean=parts[0].split('/').filter(Boolean).join('/');
+  const seg=clean?clean.split('/'):[];
+  let action=seg[0]||'health';
+  const params=new URLSearchParams(parts[1]||'');
+  if(action==='products'&&seg[1]){action='product_update';params.set('id',seg[1])}
+  params.set('action',action);
+  return API+'?'+params.toString();
+}
+async function api(path,opts={}){
+  const headers={...authHeader(),'Content-Type':'application/json',...(opts.headers||{})};
+  const r=await fetch(apiUrl(path),{...opts,headers});
+  if(r.status===401){sessionStorage.removeItem('zri_session');sessionStorage.removeItem('zri_auth');showLogin();$('loginError').classList.remove('hidden');throw new Error('Unauthorized')}
+  let data={};try{data=await r.json()}catch{}
+  if(!r.ok) throw new Error(data.error||('Request failed: '+r.status));
+  return data;
+}
+function setNav(view){document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
+function pageHead(title,sub,action=''){return '<div class="top"><div><h1>'+esc(title)+'</h1><div class="muted">'+esc(sub)+'</div></div>'+action+'</div>'}
+function statusBadge(status){
+  const cls=status==='On target'?'good':status==='Warning'?'warn':status==='Critical'?'bad':status==='Active'?'good':'';
+  return '<span class="badge '+cls+'">'+esc(status)+'</span>';
+}
+function emptyState(title,text){return '<div class="empty-state"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
+
+async function renderDashboard(){
+  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring')+'<div class="loader">Loading dashboard…</div>';
+  const [d,p]=await Promise.all([api('/dashboard'),api('/provider_status')]);
+  const rows=d.rows.map(x=>{
+    const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
+    const sponsored=x.sponsored_position!=null
+      ? '#'+x.sponsored_position
+      : (x.latest_check_status==='SUCCESS' && x.sponsored_found===false
+          ? '<span class="empty">Not found</span>'
+          : '<span class="empty">No data</span>');
+    const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank<=x.critical_rank?'Warning':'Critical'));
+    const lastChecked=x.latest_checked_at?new Date(x.latest_checked_at).toLocaleString():'—';
+    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
+  }).join('');
+  const action=p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up free rank agent</button>';
+  const providerNote=p.connected
+    ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · Pincode <b>'+esc(p.pincode)+'</b>. Every successful check is saved as a historical snapshot; new checks do not overwrite older ranks.</div>'
+    : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>';
+  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring',action)+
+  '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Pincode</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Last checked</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
+  if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
+    const b=$('runRankCheck');b.disabled=true;b.textContent='Queueing check…';
+    try{
+      await api('/rank_check_now',{method:'POST',body:'{}'});
+      toast('Rank check queued. Opera will use pincode '+(p.pincode||'from Settings')+' automatically.');
+      b.textContent='Queued';
+      setTimeout(()=>renderDashboard(),4000);
+    }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Run live rank check'}
+  };
+}
+
+async function renderProducts(){
+  const d=await api('/products');
+  const rows=d.products.map(p=>'<tr><td><b>'+esc(p.product_name)+'</b><div class="tiny">'+esc(p.role||'')+'</div></td><td>'+esc(p.asin)+'</td><td>'+p.tracked_keywords+'</td><td>'+statusBadge(p.active?'Active':'Inactive')+'</td><td><button class="btn-sm toggle-product" data-id="'+p.id+'" data-active="'+p.active+'">'+(p.active?'Disable':'Enable')+'</button></td></tr>').join('');
+  $('main').innerHTML=pageHead('Products','Manage the ASINs included in rank tracking')+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Tracked products</b><span class="muted">'+d.products.length+' ASINs</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>ASIN</th><th>Keywords</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Add product</b></div><div class="panelbody"><form id="productForm"><label>ASIN</label><input class="field" name="asin" placeholder="B0XXXXXXXX" maxlength="10" required><label>Product name</label><input class="field" name="product_name" placeholder="Zipify..." required><label>Role</label><input class="field" name="role" placeholder="Hero / Growth / Sell-through"><div class="actions"><button class="primary">Save product</button></div></form></div></div></div>';
+  $('productForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await api('/products',{method:'POST',body:JSON.stringify(Object.fromEntries(f))});toast('Product saved');renderProducts()}catch(err){toast(err.message,true)}};
+  document.querySelectorAll('.toggle-product').forEach(b=>b.onclick=async()=>{try{await api('/products/'+b.dataset.id,{method:'PATCH',body:JSON.stringify({active:b.dataset.active!=='true'})});toast('Product updated');renderProducts()}catch(err){toast(err.message,true)}});
+}
+
+async function renderKeywords(){
+  const [k,p]=await Promise.all([api('/keywords'),api('/products')]);
+  const rows=k.keywords.map(x=>'<tr><td><b>'+esc(x.keyword)+'</b></td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+(x.search_volume??'—')+'</td><td>'+(x.products.length?x.products.map(q=>'<span class="badge">'+esc(q.asin)+'</span>').join(' '):'<span class="empty">Not tracked</span>')+'</td></tr>').join('');
+  const productOpts=p.products.filter(x=>x.active).map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
+  const keywordOpts=k.keywords.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.keyword)+'</option>').join('');
+  $('main').innerHTML=pageHead('Keywords','Build your keyword set and assign keywords to ASINs')+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Keyword library</b><span class="muted">'+k.keywords.length+' keywords</span></div><div class="tablewrap"><table><thead><tr><th>Keyword</th><th>Priority</th><th>Search volume (optional)</th><th>Tracked ASINs</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+  '<div><div class="panel"><div class="panelhead"><b>Add keyword</b></div><div class="panelbody"><form id="keywordForm"><label>Keyword</label><input class="field" name="keyword" required><div class="formgrid"><div><label>Priority</label><select class="field" name="priority"><option>critical</option><option>high</option><option selected>medium</option><option>low</option></select></div><div><label>Search volume (optional/manual)</label><input class="field" name="search_volume" type="number" min="0" placeholder="Leave blank if unknown"></div></div><div class="actions"><button class="primary">Save keyword</button></div></form></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Start tracking</b></div><div class="panelbody"><form id="trackingForm"><label>Product</label><select class="field" name="asin" required>'+productOpts+'</select><label>Keyword</label><select class="field" name="keyword_id" required>'+keywordOpts+'</select><div class="formgrid"><div><label>Target rank</label><input class="field" name="organic_target_rank" value="4" type="number" min="1"></div><div><label>Critical rank</label><input class="field" name="organic_critical_rank" value="8" type="number" min="1"></div></div><div class="actions"><button class="primary">Track keyword</button></div></form></div></div></div></div>';
+  $('keywordForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));try{await api('/keywords',{method:'POST',body:JSON.stringify(o)});toast('Keyword saved');renderKeywords()}catch(err){toast(err.message,true)}};
+  $('trackingForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));o.organic_warning_rank=Math.max(Number(o.organic_target_rank)+1,5);try{await api('/tracking',{method:'POST',body:JSON.stringify(o)});toast('Tracking rule saved');renderKeywords()}catch(err){toast(err.message,true)}};
+}
+
+async function renderCampaigns(){
+  const [c,p,k]=await Promise.all([api('/campaigns'),api('/products'),api('/keywords')]);
+  const rows=c.campaigns.length?c.campaigns.map(x=>{
+    const current=x.current_organic_rank==null?'—':'#'+x.current_organic_rank;
+    const start=x.starting_organic_rank==null?'—':'#'+x.starting_organic_rank;
+    const progress=x.progress_pct==null?'—':Math.round(Number(x.progress_pct))+'%';
+    const cls=x.progress_status==='Goal reached'?'good':x.progress_status==='Improving'?'blue':x.progress_status==='Below start'?'warn':'';
+    return '<tr><td><b>'+esc(x.title)+'</b><div class="tiny">'+esc(x.associated_ppc_campaign||'')+'</div></td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+start+'</td><td>'+current+'</td><td>Top '+x.goal_rank+'</td><td>'+progress+'</td><td><span class="badge '+cls+'">'+esc(x.progress_status||'Tracking')+'</span></td><td>'+dateFmt(x.start_date)+'</td></tr>';
+  }).join(''):'';
+  const po=p.products.filter(x=>x.active).map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
+  const ko=k.keywords.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.keyword)+'</option>').join('');
+
+  $('main').innerHTML=pageHead('Ranking Campaigns','Measure keyword movement from starting rank to goal · pincode '+esc(c.pincode||'—'))+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Campaign progress</b><span class="muted">'+c.campaigns.length+' campaigns</span></div>'+
+  (rows?'<div class="tablewrap"><table><thead><tr><th>Campaign</th><th>ASIN</th><th>Keyword</th><th>Start</th><th>Current</th><th>Goal</th><th>Progress</th><th>Status</th><th>Started</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No campaigns yet','Create a focused ranking campaign from the form. Starting rank can be filled automatically from the latest rank.'))+
+  '</div><div class="panel"><div class="panelhead"><b>New campaign</b></div><div class="panelbody"><form id="campaignForm"><label>Product</label><select class="field" name="asin">'+po+'</select><label>Keyword</label><select class="field" name="keyword_id">'+ko+'</select><label>Campaign title</label><input class="field" name="title" placeholder="Optional"><div class="formgrid"><div><label>Starting rank</label><input class="field" name="starting_organic_rank" type="number" min="1" placeholder="Auto"></div><div><label>Goal rank</label><input class="field" name="goal_rank" value="4" type="number" min="1"></div></div><label>Associated PPC campaign</label><input class="field" name="associated_ppc_campaign" placeholder="Optional"><div class="actions"><button class="primary">Create campaign</button></div></form></div></div></div>';
+
+  $('campaignForm').onsubmit=async e=>{e.preventDefault();try{await api('/campaigns',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target))) });toast('Campaign created');renderCampaigns()}catch(err){toast(err.message,true)}};
+}
+
+async function renderAdvertising(){
+  const d=await api('/advertising');
+  const rows=d.rows.length?d.rows.map(x=>'<tr><td>'+dateFmt(x.metric_date)+'</td><td>'+esc(x.product?.asin||'—')+'</td><td>'+esc(x.keyword?.keyword||x.target||'—')+'</td><td>'+esc(x.campaign_name||'—')+'</td><td>'+num(x.impressions)+'</td><td>'+num(x.clicks)+'</td><td>'+money(x.spend)+'</td><td>'+num(x.orders)+'</td><td>'+money(x.sales)+'</td><td>'+pct(x.acos)+'</td></tr>').join(''):'';
+  const integration=d.integration||{};
+
+  $('main').innerHTML=pageHead('Advertising','PPC performance + automatic sponsored-position intelligence')+
+  '<div class="stats"><div class="stat"><span>Spend</span><b>'+money(d.summary.spend)+'</b></div><div class="stat"><span>Sales</span><b>'+money(d.summary.sales)+'</b></div><div class="stat"><span>ACOS</span><b>'+pct(d.summary.acos)+'</b></div><div class="stat"><span>ROAS</span><b>'+(d.summary.roas==null?'—':Number(d.summary.roas).toFixed(2))+'</b></div></div>'+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Advertising performance</b><span class="muted">Campaign × keyword/target</span></div>'+
+  (rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword/target</th><th>Campaign</th><th>Impressions</th><th>Clicks</th><th>Spend</th><th>Orders</th><th>Sales</th><th>ACOS</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No PPC report data yet','Sponsored search placement is already tracked automatically. Import an Amazon Ads CSV here when you want spend, clicks, orders, sales and ACOS in the same dashboard.'))+
+  '</div><div><div class="panel"><div class="panelhead"><b>Amazon Ads data</b><span class="badge '+(integration.configured&&integration.enabled?'good':'warn')+'">'+(integration.configured&&integration.enabled?'API connected':'CSV import ready')+'</span></div><div class="panelbody">'+
+  '<div class="muted" style="line-height:1.5">Import a Sponsored Products report CSV. Re-importing the same rows is safe; duplicates are updated instead of multiplied.</div>'+
+  '<label>Amazon Ads CSV</label><input id="adsCsv" class="field" type="file" accept=".csv,text/csv"><div id="adsCsvInfo" class="tiny" style="margin-top:7px">Supports common Date, Campaign, Targeting/Keyword, Impressions, Clicks, Spend, Orders, Units and Sales columns.</div>'+
+  '<div class="actions"><button id="importAds" class="primary" disabled>Import report</button></div></div></div>'+
+  '<div class="note"><b>Sponsored rank tracking is already automatic.</b> The Dashboard and Reports record whether your ASIN appears as Sponsored and its sponsored position for each tracked keyword. PPC financial metrics require Amazon Ads report/API data.</div></div></div>';
+
+  let parsed=[];
+  $('adsCsv').onchange=async e=>{
+    const file=e.target.files?.[0];
+    if(!file){parsed=[];$('importAds').disabled=true;return}
+    parsed=adRowsFromCsv(await file.text());
+    $('adsCsvInfo').textContent=parsed.length+' valid dated rows detected.';
+    $('importAds').disabled=!parsed.length;
+  };
+  $('importAds').onclick=async()=>{
+    const b=$('importAds');b.disabled=true;b.textContent='Importing…';
+    try{
+      const r=await api('/advertising_import',{method:'POST',body:JSON.stringify({rows:parsed})});
+      toast('Imported '+r.inserted+' rows'+(r.skipped?' · '+r.skipped+' skipped':''));
+      renderAdvertising();
+    }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Import report'}
+  };
+}
+
+async function renderAlerts(){
+  const d=await api('/alerts');
+  const open=d.alerts.filter(x=>!x.resolved_at&&x.severity!=='recovery');
+  const critical=open.filter(x=>x.severity==='critical').length;
+  const warning=open.filter(x=>x.severity==='warning').length;
+  const recoveries=d.alerts.filter(x=>x.severity==='recovery').length;
+  const rows=d.alerts.length?d.alerts.map(x=>{
+    const pin=x.metadata?.pincode||'—';
+    const mail=x.notification_status==='sent'?'<span class="badge good">Email sent</span>':x.notification_status==='failed'?'<span class="badge bad">Email failed</span>':'<span class="tiny">—</span>';
+    return '<tr><td>'+esc(dateTimeFmt(x.triggered_at))+'</td><td><span class="badge '+(x.severity==='critical'?'bad':x.severity==='warning'?'warn':x.severity==='recovery'?'good':'')+'">'+esc(x.severity)+'</span></td><td><b>'+esc(x.title)+'</b><div class="tiny">'+esc(x.message||'')+'</div></td><td>'+esc(x.product?.asin||'—')+'</td><td>'+esc(x.keyword?.keyword||'—')+'</td><td>'+esc(pin)+'</td><td>'+(x.resolved_at?'<span class="badge good">Resolved</span>':'<span class="badge">Open</span>')+'</td><td>'+mail+'</td></tr>';
+  }).join(''):'';
+
+  $('main').innerHTML=pageHead('Alerts','Automatic organic-rank, sponsored-position, recovery and collection alerts')+
+  '<div class="stats"><div class="stat"><span>Open critical</span><b>'+critical+'</b></div><div class="stat"><span>Open warnings</span><b>'+warning+'</b></div><div class="stat"><span>Open total</span><b>'+open.length+'</b></div><div class="stat"><span>Recoveries</span><b>'+recoveries+'</b></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Alert history</b><span class="muted">'+d.alerts.length+' events</span></div>'+
+  (rows?'<div class="tablewrap"><table><thead><tr><th>Triggered</th><th>Severity</th><th>Alert</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Status</th><th>Email</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No alerts yet','The alert engine is active. New rank checks will create an event only when a threshold issue appears, changes severity, or recovers.'))+
+  '</div>';
+}
+
+async function renderReports(days=30){
+  const [d,h]=await Promise.all([api('/reports?days='+days),api('/rank_history?days='+days)]);
+  const rows=d.rows.length?d.rows.slice().reverse().slice(0,200).map(x=>'<tr><td>'+dateFmt(x.metric_date)+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||d.pincode||'—')+'</td><td>'+(x.median_organic_rank==null?'—':'#'+x.median_organic_rank)+'</td><td>'+(x.best_organic_rank==null?'—':'#'+x.best_organic_rank)+'</td><td>'+(x.worst_organic_rank==null?'—':'#'+x.worst_organic_rank)+'</td><td>'+pct(x.sponsored_visibility_pct)+'</td></tr>').join(''):'';
+
+  const historyRows=(h.rows||[]).slice(0,400).map(x=>{
+    const success=x.check_status==='SUCCESS';
+    const organic=success?(x.organic_rank==null?'Not found':'#'+x.organic_rank):'—';
+    const sponsored=success?(x.sponsored_found?(x.sponsored_position==null?'Found':'#'+x.sponsored_position):'Not found'):'—';
+    return '<tr><td>'+esc(dateTimeFmt(x.checked_at))+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||'—')+'</td><td>'+organic+'</td><td>'+sponsored+'</td><td>'+(x.organic_page??'—')+'</td><td>'+(x.organic_absolute_position??'—')+'</td><td><span class="badge '+(success?'good':'bad')+'">'+esc(x.check_status)+'</span></td></tr>';
+  }).join('');
+
+  $('main').innerHTML=pageHead('Reports','Organic + sponsored history for current pincode '+esc(d.pincode||'—'),'<select id="reportDays" class="field" style="width:auto"><option value="7" '+(days==7?'selected':'')+'>7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
+  '<div class="stats"><div class="stat"><span>Rank observations</span><b>'+d.summary.ranked_observations+'</b></div><div class="stat"><span>Average rank</span><b>'+(d.summary.average_rank==null?'—':'#'+Number(d.summary.average_rank).toFixed(1))+'</b></div><div class="stat"><span>Top 4 visibility</span><b>'+pct(d.summary.top4_pct)+'</b></div><div class="stat"><span>Sponsored visibility</span><b>'+pct(d.summary.sponsored_visibility_avg)+'</b></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">Every successful/failed check stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Automatic Opera checks will populate this history.'))+'</div>'+
+  '<div class="panel"><div class="panelhead"><b>Daily metrics</b><span class="muted">Current-pincode median / best / worst only</span></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Metrics populate automatically from stored rank snapshots.'))+'</div>';
+  $('reportDays').onchange=e=>renderReports(Number(e.target.value));
+}
+
+async function renderSettings(){
+  const [d,p,a,n,ads]=await Promise.all([
+    api('/settings'),api('/provider_status'),api('/local_agent_status'),api('/notification_settings'),api('/ads_status')
+  ]);
+  const t=d.settings.tracking||{};
+  const agent=a.agent;
+  const notify=n.notifications||{};
+  const ad=ads.integration||{};
+
+  const operaPanel=
+    '<div class="panel"><div class="panelhead"><b>Opera Rank Agent</b><span class="badge '+(agent?.last_seen_at?'good':'warn')+'">'+(agent?.last_seen_at?'Connected':'Waiting')+'</span></div><div class="panelbody">'+
+    '<div class="metricline"><span>Agent</span><b>'+esc(agent?.name||'Opera Rank Extension')+'</b></div>'+
+    '<div class="metricline"><span>Last seen</span><b>'+esc(agent?.last_seen_at?dateTimeFmt(agent.last_seen_at):'Not yet')+'</b></div>'+
+    '<div class="metricline"><span>Current pincode</span><b>'+esc(t.pincode||'—')+'</b></div>'+
+    '<div class="metricline"><span>Provider status</span><b>'+esc(p.status||'Waiting')+'</b></div>'+
+    '<div class="actions"><button id="testRankNow" class="primary">Queue live rank check</button></div>'+
+    '<div class="tiny" style="margin-top:10px">Opera polls automatically and changes Amazon to the pincode saved above. Do not create/reset another agent token while this agent is working.</div></div></div>';
+
+  const emailPanel=
+    '<div class="panel"><div class="panelhead"><b>Email alerts</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
+    '<label><input type="checkbox" name="enabled" '+(notify.enabled?'checked':'')+'> Enable email alerts</label>'+
+    '<label>Alert email</label><input class="field" type="email" name="email_address" value="'+esc(notify.email_address||'')+'" placeholder="you@example.com">'+
+    '<label>Resend API key</label><input class="field" type="password" name="api_key" placeholder="'+(notify.configured?'Configured — leave blank to keep current key':'re_...')+'">'+
+    '<label>From address (optional)</label><input class="field" name="from_email" value="'+esc(notify.from_email||'')+'" placeholder="Zipify Rank Alerts <alerts@yourdomain.com>">'+
+    '<div class="actions"><button class="primary">Save email alerts</button>'+(notify.configured?'<button id="testEmail" type="button" class="secondary">Send test email</button>':'')+'</div>'+
+    '<div class="tiny" style="margin-top:9px">Without an email provider key, Opera desktop notifications still work automatically. The API key is stored server-side and is never returned to the browser.</div></form></div></div>';
+
+  const adsPanel=
+    '<div class="panel"><div class="panelhead"><b>Amazon Ads integration</b><span class="badge '+(ad.configured&&ad.enabled?'good':'warn')+'">'+(ad.configured&&ad.enabled?'Connected':'CSV import mode')+'</span></div><div class="panelbody"><div class="muted" style="line-height:1.5">Sponsored placement tracking is automatic now. Spend/click/order/sales data requires Amazon Advertising API authorization; until that is connected, use the Advertising screen CSV importer.</div></div></div>';
+
+  $('main').innerHTML=pageHead('Settings','Tracking, automation and notification configuration')+
+  '<div class="grid2"><div><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" inputmode="numeric" maxlength="6" value="'+esc(t.pincode||'')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times (IST)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+emailPanel+'</div>'+
+  '<div>'+operaPanel+adsPanel+'<div class="note"><b>Pincode changes apply to every active tracking rule.</b> Reports and daily metrics keep old locations separate instead of mixing them with the new pincode.</div></div></div>';
+
+  $('settingsForm').onsubmit=async e=>{
+    e.preventDefault();
+    const o=Object.fromEntries(new FormData(e.target));
+    o.organic_schedule=String(o.organic_schedule).split(',').map(x=>x.trim()).filter(Boolean);
+    o.sponsored_frequency_hours=Number(o.sponsored_frequency_hours);
+    try{await api('/settings',{method:'POST',body:JSON.stringify(o)});toast('Tracking settings saved');renderSettings()}catch(err){toast(err.message,true)}
+  };
+
+  $('notificationForm').onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const o=Object.fromEntries(fd);
+    o.enabled=fd.get('enabled')==='on';
+    try{await api('/notification_settings',{method:'POST',body:JSON.stringify(o)});toast('Email alert settings saved');renderSettings()}catch(err){toast(err.message,true)}
+  };
+
+  if($('testEmail')) $('testEmail').onclick=async()=>{
+    const b=$('testEmail');b.disabled=true;b.textContent='Sending…';
+    try{await api('/notification_test',{method:'POST',body:'{}'});toast('Test email sent');b.textContent='Sent'}catch(err){toast(err.message,true);b.disabled=false;b.textContent='Send test email'}
+  };
+
+  if($('testRankNow')) $('testRankNow').onclick=async()=>{
+    const b=$('testRankNow');b.disabled=true;b.textContent='Queueing…';
+    try{await api('/rank_check_now',{method:'POST',body:'{}'});toast('Queued. Opera will pick it up automatically.');b.textContent='Queued'}catch(err){toast(err.message,true);b.disabled=false;b.textContent='Queue live rank check'}
+  };
+}
+
+const renderers=
+
+const renderers={dashboard:renderDashboard,products:renderProducts,keywords:renderKeywords,campaigns:renderCampaigns,advertising:renderAdvertising,alerts:renderAlerts,reports:renderReports,settings:renderSettings};
+async function navigate(view){
+  if(!renderers[view])view='dashboard';setNav(view);location.hash=view;$('main').innerHTML='<div class="loader">Loading…</div>';
+  try{await renderers[view]()}catch(err){if(err.message!=='Unauthorized'){$('main').innerHTML=pageHead('Something went wrong','The screen could not load')+'<div class="note">'+esc(err.message)+'</div>';toast(err.message,true)}}
+}
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  $('loginError').classList.add('hidden');
+  const user=$('username').value.trim(),pass=$('password').value;
+  try{
+    const r=await fetch(API+'?action=login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:user,password:pass})
+    });
+    const d=await r.json();
+    if(!r.ok||!d.session) throw new Error(d.error||'Login failed');
+    sessionStorage.removeItem('zri_auth');
+    sessionStorage.setItem('zri_session',d.session);
+    showApp();
+    await navigate(location.hash.slice(1)||'dashboard');
+  }catch(err){
+    sessionStorage.removeItem('zri_session');
+    showLogin();
+    $('loginError').textContent=err.message||'Login failed';
+    $('loginError').classList.remove('hidden');
+  }
+});
+$('logout').onclick=async()=>{
+  try{await fetch(API+'?action=logout',{method:'POST',headers:authHeader()})}catch{}
+  sessionStorage.removeItem('zri_session');sessionStorage.removeItem('zri_auth');location.hash='';showLogin()
+};
+window.addEventListener('hashchange',()=>{if(sessionStorage.getItem('zri_session'))navigate(location.hash.slice(1)||'dashboard')});
+sessionStorage.removeItem('zri_auth');
+if(sessionStorage.getItem('zri_session')){showApp();navigate(location.hash.slice(1)||'dashboard')}else showLogin();
+</script>
+</body>
+</html>
