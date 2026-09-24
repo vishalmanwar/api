@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.23.9';
+const EXT_VERSION='2026.09.24.10';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -178,13 +178,40 @@ async function runCheck(force=false){
       return {ok:true,skipped:true};
     }
 
-    const activeTabs=await chrome.tabs.query({active:true,currentWindow:true});
-    let chosen=activeTabs.find(t=>/^https:\/\/www\.amazon\.in\//i.test(t.url||''));
-    if(!chosen){
-      const amazonTabs=await chrome.tabs.query({currentWindow:true,url:['https://www.amazon.in/*']});
-      chosen=amazonTabs[0];
+    // Reuse the exact Amazon tab that previously produced a successful 380015 run.
+    const storedTab=await chrome.storage.local.get(['preferredAmazonTabId']);
+    let chosen=null;
+
+    if(storedTab.preferredAmazonTabId){
+      const remembered=await chrome.tabs.get(Number(storedTab.preferredAmazonTabId)).catch(()=>null);
+      if(remembered && /^https:\/\/www\.amazon\.in\//i.test(remembered.url||'')){
+        chosen=remembered;
+      }
     }
-    if(!chosen) throw new Error('No Amazon.in tab found. Open Amazon.in, set pincode 380015 manually, then click Run now.');
+
+    // On a manual Run now, prefer the active Amazon tab so the user can explicitly
+    // establish which Amazon session/tab should be used for future queued checks.
+    if(force){
+      const activeTabs=await chrome.tabs.query({active:true,currentWindow:true});
+      const activeAmazon=activeTabs.find(t=>/^https:\/\/www\.amazon\.in\//i.test(t.url||''));
+      if(activeAmazon) chosen=activeAmazon;
+    }
+
+    // If no remembered tab exists, scan all Amazon tabs across Edge windows and
+    // prefer one that already shows the required pincode.
+    if(!chosen){
+      const amazonTabs=await chrome.tabs.query({url:['https://www.amazon.in/*']});
+      const wanted=String(conf.default_pincode||'380015');
+      for(const candidate of amazonTabs){
+        try{
+          const s=await amazonSnapshot(candidate.id);
+          if(String(s.location||'').includes(wanted)){chosen=candidate;break;}
+        }catch{}
+      }
+      if(!chosen) chosen=amazonTabs[0]||null;
+    }
+
+    if(!chosen) throw new Error('No Amazon.in tab found. Open Amazon.in, set pincode 380015 manually, then click Run now once.');
     tab=chosen;
     await chrome.tabs.update(tab.id,{active:true});
     await waitTabComplete(tab.id,60000).catch(()=>{});
@@ -201,6 +228,7 @@ async function runCheck(force=false){
       const [pincode]=key.split('|');
       await setStatus('Setting Amazon pincode '+pincode+'…');
       const location=await setPincode(tab.id,pincode);
+      await chrome.storage.local.set({preferredAmazonTabId:tab.id,preferredAmazonWindowId:tab.windowId,preferredPincode:pincode});
       await setStatus('Verified '+location+'. Checking keywords…');
 
       const byKeyword=new Map();
@@ -281,7 +309,17 @@ async function runCheck(force=false){
         });
       }catch{}
     }
-    if(setupPincodeIssue) return {ok:false,needsPincode:true,message:err};
+    if(setupPincodeIssue){
+      if(conf?.request_id){
+        try{
+          await api('local_worker_release',{
+            method:'POST',
+            body:{request_id:conf.request_id,reason:err}
+          });
+        }catch{}
+      }
+      return {ok:false,needsPincode:true,message:err};
+    }
     throw e;
   }finally{
     running=false;
