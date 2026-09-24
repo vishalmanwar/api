@@ -1,16 +1,19 @@
-const EXT_VERSION='2026.09.24.13-opera-auto-poll';
+const EXT_VERSION='2026.09.24.20-opera-stable';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
+const ALARM='rank-poll';
+const POLL_MINUTES=1;
+const SETUP_RETRY_MS=120000;
 let running=false;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 async function getToken(){
   const {token=''}=await chrome.storage.local.get('token');
-  return token.trim();
+  return String(token||'').trim();
 }
 
 async function setStatus(status,extra={}){
-  await chrome.storage.local.set({status,updatedAt:new Date().toISOString(),...extra});
+  await chrome.storage.local.set({status,updatedAt:new Date().toISOString(),extensionVersion:EXT_VERSION,...extra});
 }
 
 async function api(action,{method='GET',body=null,force=false}={}){
@@ -20,37 +23,38 @@ async function api(action,{method='GET',body=null,force=false}={}){
   const r=await fetch(url,{
     method,
     headers:{'Content-Type':'application/json','X-Rank-Agent':token},
-    body:body?JSON.stringify(body):undefined
+    body:body==null?undefined:JSON.stringify(body)
   });
-  const text=await r.text();
-  let data={}; try{data=JSON.parse(text)}catch{}
-  if(!r.ok) throw new Error(data.error||('HTTP '+r.status+' '+text));
+  const raw=await r.text();
+  let data={};
+  try{data=JSON.parse(raw)}catch{}
+  if(!r.ok) throw new Error(data.error||('HTTP '+r.status+' '+raw));
   return data;
 }
 
 async function waitTabComplete(tabId,timeout=60000){
-  const current=await chrome.tabs.get(tabId).catch(()=>null);
-  if(current?.status==='complete') return current;
-  return await new Promise((resolve,reject)=>{
+  const cur=await chrome.tabs.get(tabId).catch(()=>null);
+  if(cur?.status==='complete') return cur;
+  return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{
-      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onUpdated.removeListener(done);
       reject(new Error('Amazon tab timed out.'));
     },timeout);
-    function onUpdated(id,info,tab){
+    function done(id,info,tab){
       if(id===tabId && info.status==='complete'){
         clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(onUpdated);
+        chrome.tabs.onUpdated.removeListener(done);
         resolve(tab);
       }
     }
-    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onUpdated.addListener(done);
   });
 }
 
 async function navigate(tabId,url){
-  await chrome.tabs.update(tabId,{url});
+  await chrome.tabs.update(tabId,{url,active:true});
   await waitTabComplete(tabId,60000);
-  await sleep(1800);
+  await sleep(1200);
 }
 
 async function amazonSnapshot(tabId){
@@ -60,7 +64,7 @@ async function amazonSnapshot(tabId){
       const body=(document.body?.innerText||'').trim();
       const line1=(document.querySelector('#glow-ingress-line1')?.textContent||'').trim();
       const line2=(document.querySelector('#glow-ingress-line2')?.textContent||'').trim();
-      const locationText=(line1+' '+line2).replace(/\s+/g,' ').trim();
+      const location=(line1+' '+line2).replace(/\s+/g,' ').trim();
       const cards=[...document.querySelectorAll('[data-component-type="s-search-result"][data-asin]')]
         .map((el,index)=>{
           const asin=(el.getAttribute('data-asin')||'').trim().toUpperCase();
@@ -69,15 +73,23 @@ async function amazonSnapshot(tabId){
             !!el.querySelector('[aria-label*="Sponsored"],[data-component-type="sp-sponsored-result"],[class*="s-sponsored"]');
           return {asin,sponsored,absolute:index+1};
         }).filter(x=>x.asin);
-      return {title:document.title,url:window.location.href,bodyChars:body.length,location:locationText,cards};
+      return {title:document.title,url:window.location.href,bodyChars:body.length,location,cards};
     }
   });
   return res?.result||{};
 }
 
-
 async function cdp(tabId,method,params={}){
-  return await chrome.debugger.sendCommand({tabId},method,params);
+  return chrome.debugger.sendCommand({tabId},method,params);
+}
+
+async function attachDebugger(tabId){
+  try{
+    await chrome.debugger.attach({tabId},'1.3');
+  }catch(e){
+    const msg=String(e?.message||e);
+    if(!msg.includes('Another debugger is already attached')) throw e;
+  }
 }
 
 async function realClick(tabId,x,y){
@@ -86,125 +98,171 @@ async function realClick(tabId,x,y){
   await cdp(tabId,'Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
 }
 
+async function findLocationButton(tabId){
+  const [r]=await chrome.scripting.executeScript({
+    target:{tabId},
+    func:()=>{
+      const visible=el=>{
+        if(!el) return false;
+        const r=el.getBoundingClientRect();
+        return r.width>0&&r.height>0;
+      };
+      const el=[
+        document.querySelector('#nav-global-location-popover-link'),
+        document.querySelector('#glow-ingress-block'),
+        document.querySelector('[data-csa-c-content-id="nav-global-location-popover-link"]')
+      ].find(visible);
+      if(!el) return null;
+      const b=el.getBoundingClientRect();
+      return {x:b.left+b.width/2,y:b.top+b.height/2};
+    }
+  });
+  return r?.result||null;
+}
+
+async function findLocationControls(tabId){
+  const [r]=await chrome.scripting.executeScript({
+    target:{tabId},
+    func:()=>{
+      const visible=el=>{
+        if(!el) return false;
+        const r=el.getBoundingClientRect();
+        const s=getComputedStyle(el);
+        return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';
+      };
+      const input=[
+        document.querySelector('#GLUXZipUpdateInput'),
+        document.querySelector('input[data-action="GLUXPostalInputAction"]'),
+        document.querySelector('input[placeholder*="pincode" i]'),
+        document.querySelector('input[placeholder*="postal" i]'),
+        document.querySelector('input[aria-label*="pincode" i]'),
+        document.querySelector('input[aria-label*="postal" i]'),
+        ...document.querySelectorAll('.a-popover input[type="text"],.a-popover input:not([type]),[role="dialog"] input[type="text"]')
+      ].find(visible);
+
+      const all=[...document.querySelectorAll(
+        '#GLUXZipUpdate,input[aria-labelledby="GLUXZipUpdate-announce"],.a-popover button,.a-popover input[type="submit"],[role="dialog"] button,[role="dialog"] input[type="submit"]'
+      )].filter(visible);
+      const apply=all.find(el=>/apply|update|use this|continue/i.test(
+        (el.value||el.textContent||el.getAttribute('aria-label')||'').trim()
+      )) || all[0];
+
+      if(!input||!apply) return null;
+      const ir=input.getBoundingClientRect();
+      const ar=apply.getBoundingClientRect();
+      return {
+        input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
+        apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
+      };
+    }
+  });
+  return r?.result||null;
+}
+
+async function verifyPincode(tabId,pincode,timeout=12000){
+  const end=Date.now()+timeout;
+  while(Date.now()<end){
+    const snap=await amazonSnapshot(tabId).catch(()=>null);
+    if(String(snap?.location||'').includes(String(pincode))) return snap.location;
+    await sleep(500);
+  }
+  return null;
+}
+
 async function setPincode(tabId,pincode){
-  // Always begin from Amazon home so the location control is present.
+  if(!/^\d{6}$/.test(String(pincode))) throw new Error('Invalid configured pincode: '+pincode);
+
   await navigate(tabId,'https://www.amazon.in/');
   let snap=await amazonSnapshot(tabId);
   if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
-
   if(String(snap.location||'').includes(String(pincode))) return snap.location;
 
-  await chrome.debugger.attach({tabId},'1.3').catch(e=>{
-    if(!String(e?.message||e).includes('Another debugger is already attached')) throw e;
-  });
-
+  await attachDebugger(tabId);
   try{
-    // Open Amazon's delivery-location popup using a browser-level click.
-    const [loc]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const el=document.querySelector('#nav-global-location-popover-link') ||
-                 document.querySelector('#glow-ingress-block');
-        if(!el) return null;
-        const r=el.getBoundingClientRect();
-        return {x:r.left+r.width/2,y:r.top+r.height/2};
-      }
-    });
-    if(!loc?.result) throw new Error('Amazon Update location control not found.');
-    await realClick(tabId,loc.result.x,loc.result.y);
+    let button=null;
+    for(let i=0;i<12&&!button;i++){
+      button=await findLocationButton(tabId);
+      if(!button) await sleep(500);
+    }
+    if(!button) throw new Error('Amazon Update location control not found.');
 
-    // Amazon loads the location popover asynchronously. Wait up to ~10 seconds
-    // and retry the location click once if necessary.
+    await realClick(tabId,button.x,button.y);
+
     let ui=null;
-    for(let attempt=0;attempt<20;attempt++){
+    for(let attempt=0;attempt<30&&!ui;attempt++){
       await sleep(500);
-      const [probe]=await chrome.scripting.executeScript({
+      ui=await findLocationControls(tabId);
+      if(!ui&&(attempt===7||attempt===15)){
+        const again=await findLocationButton(tabId);
+        if(again) await realClick(tabId,again.x,again.y);
+      }
+    }
+    if(!ui) throw new Error('Amazon location popup did not expose the pincode input.');
+
+    await realClick(tabId,ui.input.x,ui.input.y);
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
+    await cdp(tabId,'Input.insertText',{text:String(pincode)});
+    await sleep(400);
+
+    await realClick(tabId,ui.apply.x,ui.apply.y);
+
+    let verified=await verifyPincode(tabId,pincode,10000);
+    if(!verified){
+      const [confirm]=await chrome.scripting.executeScript({
         target:{tabId},
         func:()=>{
           const visible=el=>{
             if(!el) return false;
             const r=el.getBoundingClientRect();
-            return r.width>0 && r.height>0;
+            return r.width>0&&r.height>0;
           };
-          const candidates=[
-            document.querySelector('#GLUXZipUpdateInput'),
-            document.querySelector('input[data-action="GLUXPostalInputAction"]'),
-            document.querySelector('input[placeholder*="pincode" i]'),
-            document.querySelector('input[placeholder*="postal" i]'),
-            document.querySelector('input[aria-label*="pincode" i]'),
-            document.querySelector('input[aria-label*="postal" i]'),
-            ...document.querySelectorAll('.a-popover input[type="text"], .a-popover input:not([type]), [role="dialog"] input[type="text"]')
-          ].find(visible);
-
-          const applyCandidates=[
-            document.querySelector('#GLUXZipUpdate'),
-            document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]'),
-            document.querySelector('input.a-button-input[type="submit"]'),
-            ...document.querySelectorAll('.a-popover button,.a-popover input[type="submit"],[role="dialog"] button,[role="dialog"] input[type="submit"]')
-          ];
-          const apply=applyCandidates.find(el=>visible(el) && /apply|update|use this|done|continue/i.test((el.value||el.textContent||el.getAttribute('aria-label')||'').trim())) ||
-                      applyCandidates.find(visible);
-
-          if(!candidates || !apply) return null;
-          const ir=candidates.getBoundingClientRect();
-          const ar=apply.getBoundingClientRect();
-          return {
-            input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
-            apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
-          };
+          const el=[
+            document.querySelector('#GLUXConfirmClose'),
+            document.querySelector('button[name="glowDoneButton"]'),
+            document.querySelector('input[name="glowDoneButton"]'),
+            ...document.querySelectorAll('.a-popover button,[role="dialog"] button')
+          ].find(x=>visible(x)&&/done|continue/i.test((x.value||x.textContent||'').trim()));
+          if(!el) return null;
+          const r=el.getBoundingClientRect();
+          return {x:r.left+r.width/2,y:r.top+r.height/2};
         }
       });
-      if(probe?.result){ ui=probe.result; break; }
-
-      // If the first click did not open the popover, click Update location again once.
-      if(attempt===5){
-        await realClick(tabId,loc.result.x,loc.result.y);
+      if(confirm?.result){
+        await realClick(tabId,confirm.result.x,confirm.result.y);
+        verified=await verifyPincode(tabId,pincode,5000);
       }
     }
 
-    if(!ui) throw new Error('Amazon location popup did not expose the pincode input after waiting.');
-
-    await realClick(tabId,ui.input.x,ui.input.y);
-
-    // Ctrl+A and type the target pincode using trusted browser input events.
-    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
-    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
-    await cdp(tabId,'Input.insertText',{text:String(pincode)});
-    await sleep(300);
-
-    await realClick(tabId,ui.apply.x,ui.apply.y);
-    await sleep(1800);
-
-    // Some Amazon sessions show an extra Done/Continue button.
-    const [confirm]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const el=document.querySelector('#GLUXConfirmClose') ||
-                 document.querySelector('button[name="glowDoneButton"]') ||
-                 document.querySelector('input[name="glowDoneButton"]') ||
-                 [...document.querySelectorAll('button,input')].find(x=>/done|continue/i.test((x.value||x.textContent||'').trim()));
-        if(!el) return null;
-        const r=el.getBoundingClientRect();
-        return {x:r.left+r.width/2,y:r.top+r.height/2};
-      }
-    });
-    if(confirm?.result){
-      await realClick(tabId,confirm.result.x,confirm.result.y);
-      await sleep(800);
+    if(!verified){
+      await chrome.tabs.reload(tabId);
+      await waitTabComplete(tabId,60000);
+      await sleep(1000);
+      verified=await verifyPincode(tabId,pincode,5000);
     }
 
-    await chrome.tabs.reload(tabId);
-    await waitTabComplete(tabId,60000);
-    await sleep(1200);
-
-    snap=await amazonSnapshot(tabId);
-    if(!String(snap.location||'').includes(String(pincode))){
-      throw new Error('AUTO_PIN_FAILED|Wanted '+pincode+'|Header '+(snap.location||'unknown'));
+    if(!verified){
+      const now=await amazonSnapshot(tabId).catch(()=>({location:'unknown'}));
+      throw new Error('Automatic pincode setup failed. Wanted '+pincode+'; header: '+(now.location||'unknown'));
     }
-    return snap.location;
+    return verified;
   }finally{
     await chrome.debugger.detach({tabId}).catch(()=>{});
   }
+}
+
+async function getRankTab(){
+  const {rankTabId}=await chrome.storage.local.get('rankTabId');
+  if(rankTabId){
+    const t=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
+    if(t) return t;
+  }
+  const t=await chrome.tabs.create({url:'https://www.amazon.in/',active:true});
+  await waitTabComplete(t.id,60000);
+  await chrome.storage.local.set({rankTabId:t.id});
+  return t;
 }
 
 async function scrapeKeyword(tabId,keyword,rules,pincode){
@@ -212,15 +270,14 @@ async function scrapeKeyword(tabId,keyword,rules,pincode){
   const found=new Map();
 
   for(let pageNum=1;pageNum<=3;pageNum++){
-    const url='https://www.amazon.in/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:'');
-    await navigate(tabId,url);
+    await navigate(tabId,'https://www.amazon.in/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
     const snap=await amazonSnapshot(tabId);
 
-    if((snap.bodyChars||0)<100 || !Array.isArray(snap.cards) || !snap.cards.length){
-      throw new Error('Amazon search did not return product cards. Title: '+(snap.title||'')+' URL: '+(snap.url||''));
+    if((snap.bodyChars||0)<100||!Array.isArray(snap.cards)||!snap.cards.length){
+      throw new Error('Amazon search did not return product cards.');
     }
     if(!String(snap.location||'').includes(String(pincode))){
-      throw new Error('Amazon search page lost pincode '+pincode+'. Header: '+(snap.location||''));
+      throw new Error('Amazon search page lost pincode '+pincode+'. Header: '+(snap.location||'unknown'));
     }
 
     for(const card of snap.cards){
@@ -230,18 +287,19 @@ async function scrapeKeyword(tabId,keyword,rules,pincode){
 
       const target=rules.find(r=>String(r.asin).toUpperCase()===card.asin);
       if(!target) continue;
+
       const cur=found.get(card.asin)||{
         organic_rank:null,organic_page:null,organic_absolute_position:null,
         sponsored_found:false,sponsored_position:null,sponsored_page:null,
         sponsored_absolute_position:null,total_sponsored_ads_before_organic:null
       };
 
-      if(card.sponsored && !cur.sponsored_found){
+      if(card.sponsored&&!cur.sponsored_found){
         cur.sponsored_found=true;
         cur.sponsored_position=sponsoredCounter;
         cur.sponsored_page=pageNum;
         cur.sponsored_absolute_position=absoluteCounter;
-      } else if(!card.sponsored && cur.organic_rank===null){
+      }else if(!card.sponsored&&cur.organic_rank===null){
         cur.organic_rank=organicCounter;
         cur.organic_page=pageNum;
         cur.organic_absolute_position=absoluteCounter;
@@ -250,100 +308,79 @@ async function scrapeKeyword(tabId,keyword,rules,pincode){
       found.set(card.asin,cur);
     }
 
-    if(rules.every(r=>found.get(String(r.asin).toUpperCase())?.organic_rank!=null)) break;
-    await sleep(900);
+    const allComplete=rules.every(r=>{
+      const x=found.get(String(r.asin).toUpperCase());
+      return x?.organic_rank!=null&&x?.sponsored_found===true;
+    });
+    if(allComplete) break;
+    await sleep(700);
   }
 
   return rules.map(rule=>{
-    const f=found.get(String(rule.asin).toUpperCase())||{};
+    const x=found.get(String(rule.asin).toUpperCase())||{};
     return {
-      rule_id:rule.rule_id,
-      asin:rule.asin,
-      keyword:rule.keyword,
-      pincode,
-      device:rule.device,
-      checked_at:new Date().toISOString(),
-      status:'SUCCESS',
-      organic_rank:f.organic_rank??null,
-      organic_page:f.organic_page??null,
-      organic_absolute_position:f.organic_absolute_position??null,
-      sponsored_found:!!f.sponsored_found,
-      sponsored_position:f.sponsored_position??null,
-      sponsored_page:f.sponsored_page??null,
-      sponsored_absolute_position:f.sponsored_absolute_position??null,
-      total_sponsored_ads_before_organic:f.total_sponsored_ads_before_organic??null,
+      rule_id:rule.rule_id,asin:rule.asin,keyword:rule.keyword,pincode,device:rule.device,
+      checked_at:new Date().toISOString(),status:'SUCCESS',
+      organic_rank:x.organic_rank??null,organic_page:x.organic_page??null,
+      organic_absolute_position:x.organic_absolute_position??null,
+      sponsored_found:!!x.sponsored_found,sponsored_position:x.sponsored_position??null,
+      sponsored_page:x.sponsored_page??null,sponsored_absolute_position:x.sponsored_absolute_position??null,
+      total_sponsored_ads_before_organic:x.total_sponsored_ads_before_organic??null,
       total_results_scanned:absoluteCounter
     };
   });
 }
 
+async function releaseRequest(conf,reason){
+  if(!conf?.request_id) return;
+  await api('local_worker_release',{
+    method:'POST',
+    body:{request_id:conf.request_id,reason:String(reason||'Worker setup failed.')}
+  }).catch(()=>{});
+}
+
 async function runCheck(force=false){
   if(running) return {ok:false,message:'Already running'};
+  if(!force){
+    const {retryAfter=0}=await chrome.storage.local.get('retryAfter');
+    if(Number(retryAfter)>Date.now()) return {ok:true,backoff:true};
+  }
+
   running=true;
-  let tab=null;
   let conf=null;
+  let rankTab=null;
+  let previousActive=null;
+
   try{
-    await setStatus('Starting rank check… v'+EXT_VERSION,{lastError:null,extensionVersion:EXT_VERSION});
+    const [active]=await chrome.tabs.query({active:true,currentWindow:true});
+    previousActive=active||null;
+
+    await setStatus('Checking queue…',{lastError:null});
     conf=await api('local_worker_config',{force});
+
     if(conf.mode==='skip'){
-      await setStatus('No rank check due.');
+      await setStatus('Idle — waiting for next scheduled check.',{lastPollAt:new Date().toISOString()});
       return {ok:true,skipped:true};
     }
+    if(!Array.isArray(conf.rules)||!conf.rules.length) throw new Error('No active tracking rules.');
+    if(!/^\d{6}$/.test(String(conf.default_pincode||''))) throw new Error('Backend returned an invalid pincode.');
 
-    // Reuse the exact Amazon tab that previously produced a successful 380015 run.
-    const storedTab=await chrome.storage.local.get(['preferredAmazonTabId']);
-    let chosen=null;
+    rankTab=await getRankTab();
+    await chrome.tabs.update(rankTab.id,{active:true});
 
-    if(storedTab.preferredAmazonTabId){
-      const remembered=await chrome.tabs.get(Number(storedTab.preferredAmazonTabId)).catch(()=>null);
-      if(remembered && /^https:\/\/www\.amazon\.in\//i.test(remembered.url||'')){
-        chosen=remembered;
-      }
-    }
-
-    // On a manual Run now, prefer the active Amazon tab so the user can explicitly
-    // establish which Amazon session/tab should be used for future queued checks.
-    if(force){
-      const activeTabs=await chrome.tabs.query({active:true,currentWindow:true});
-      const activeAmazon=activeTabs.find(t=>/^https:\/\/www\.amazon\.in\//i.test(t.url||''));
-      if(activeAmazon) chosen=activeAmazon;
-    }
-
-    // If no remembered tab exists, scan all Amazon tabs across Edge windows and
-    // prefer one that already shows the required pincode.
-    if(!chosen){
-      const amazonTabs=await chrome.tabs.query({url:['https://www.amazon.in/*']});
-      const wanted=String(conf.default_pincode||'380015');
-      for(const candidate of amazonTabs){
-        try{
-          const s=await amazonSnapshot(candidate.id);
-          if(String(s.location||'').includes(wanted)){chosen=candidate;break;}
-        }catch{}
-      }
-      if(!chosen) chosen=amazonTabs[0]||null;
-    }
-
-    if(!chosen){
-      chosen=await chrome.tabs.create({url:'https://www.amazon.in/',active:true});
-      await waitTabComplete(chosen.id,60000);
-    }
-    tab=chosen;
-    await chrome.tabs.update(tab.id,{active:true});
-    await waitTabComplete(tab.id,60000).catch(()=>{});
-
-    const results=[];
     const groups=new Map();
-    for(const rule of conf.rules||[]){
-      const key=String(rule.pincode)+'|'+String(rule.device||'desktop');
+    for(const rule of conf.rules){
+      const pin=String(rule.pincode||conf.default_pincode);
+      const key=pin+'|'+String(rule.device||conf.default_device||'desktop');
       if(!groups.has(key)) groups.set(key,[]);
       groups.get(key).push(rule);
     }
 
+    const results=[];
     for(const [key,rules] of groups){
       const [pincode]=key.split('|');
       await setStatus('Setting Amazon pincode '+pincode+'…');
-      const location=await setPincode(tab.id,pincode);
-      await chrome.storage.local.set({preferredAmazonTabId:tab.id,preferredAmazonWindowId:tab.windowId,preferredPincode:pincode});
+      const location=await setPincode(rankTab.id,pincode);
       await setStatus('Verified '+location+'. Checking keywords…');
 
       const byKeyword=new Map();
@@ -354,119 +391,81 @@ async function runCheck(force=false){
 
       for(const [keyword,rr] of byKeyword){
         try{
-          await setStatus('Checking: '+keyword);
-          results.push(...await scrapeKeyword(tab.id,keyword,rr,pincode));
+          await setStatus('Checking '+keyword+'…');
+          results.push(...await scrapeKeyword(rankTab.id,keyword,rr,pincode));
         }catch(e){
+          const msg=e?.message||String(e);
           results.push(...rr.map(r=>({
             rule_id:r.rule_id,asin:r.asin,keyword:r.keyword,pincode,device:r.device,
-            checked_at:new Date().toISOString(),status:'FAILED',error:e?.message||String(e)
+            checked_at:new Date().toISOString(),status:'FAILED',error:msg
           })));
         }
-        await sleep(700);
       }
     }
 
-    const runId='chrome-extension-'+Date.now();
+    const runId='opera-extension-'+Date.now();
     const stored=await api('local_worker_ingest',{
       method:'POST',
       body:{
         run_id:runId,
         mode:conf.mode,
         request_id:conf.request_id||null,
+        provider:'browser-extension',
+        provider_name:'Zipify Opera Rank Extension',
         results
       }
     });
 
-    await setStatus('Completed: '+stored.success+' success, '+stored.failed+' failed.',{
-      lastRunAt:new Date().toISOString(),
-      lastSuccess:stored.success,
-      lastFailed:stored.failed
-    });
-    return {ok:true,...stored};
+    await chrome.storage.local.remove('retryAfter');
+    await setStatus(
+      stored.failed===0
+        ? 'Completed: '+stored.success+'/'+stored.total+' successful.'
+        : 'Completed with errors: '+stored.success+' successful, '+stored.failed+' failed.',
+      {lastRunAt:new Date().toISOString(),lastSuccess:stored.success,lastFailed:stored.failed,lastRunId:runId}
+    );
+    return stored;
   }catch(e){
-    const err=e?.message||String(e);
-    if(err.startsWith('AUTO_PIN_FAILED|')){
-      const parts=err.split('|');
-      const wanted=(parts[1]||'Wanted 380015').replace('Wanted ','');
-      const current=parts.slice(2).join('|')||'unknown';
-      await setStatus('Automatic pincode setup failed v'+EXT_VERSION+'. Wanted '+wanted+'. '+current,{lastError:err,extensionVersion:EXT_VERSION,needsManualPincode:false});
-      // Keep the Amazon tab open and make it visible so the user can correct location once.
-      if(tab?.id){
-        await chrome.tabs.update(tab.id,{active:true}).catch(()=>{});
-        tab=null;
-      }
-    }else{
-      await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
-    }
-    const setupPincodeIssue=/AUTO_PIN_FAILED|Amazon location popup|Update location control not found|Pincode input not found|Apply button not found/i.test(err);
-    if(conf?.rules?.length && !setupPincodeIssue){
-      const failedResults=conf.rules.map(r=>({
-        rule_id:r.rule_id,
-        asin:r.asin,
-        keyword:r.keyword,
-        pincode:r.pincode,
-        device:r.device,
-        checked_at:new Date().toISOString(),
-        status:'FAILED',
-        error:'SETUP '+err
-      }));
-      try{
-        await api('local_worker_ingest',{
-          method:'POST',
-          body:{
-            run_id:'edge-extension-debug-'+Date.now(),
-            mode:conf.mode,
-            request_id:conf.request_id||null,
-            provider:'browser-extension',
-            provider_name:'Zipify Edge Rank Extension',
-            results:failedResults
-          }
-        });
-      }catch{}
-    }
-    if(setupPincodeIssue){
-      if(conf?.request_id){
-        try{
-          await api('local_worker_release',{
-            method:'POST',
-            body:{request_id:conf.request_id,reason:err}
-          });
-        }catch{}
-      }
-      return {ok:false,needsPincode:true,message:err};
-    }
-    throw e;
+    const msg=e?.message||String(e);
+    await releaseRequest(conf,msg);
+    await chrome.storage.local.set({retryAfter:Date.now()+SETUP_RETRY_MS});
+    await setStatus('Automatic setup failed; retrying automatically. '+msg,{lastError:msg});
+    return {ok:false,error:msg};
   }finally{
     running=false;
-    // Keep the user's Amazon tab open.
+    if(previousActive?.id&&rankTab?.id&&previousActive.id!==rankTab.id){
+      await chrome.tabs.update(previousActive.id,{active:true}).catch(()=>{});
+    }
   }
 }
 
 async function ensureAlarm(){
-  const alarm=await chrome.alarms.get('rank-poll');
-  if(!alarm || Number(alarm.periodInMinutes)!==1){
-    if(alarm) await chrome.alarms.clear('rank-poll');
-    await chrome.alarms.create('rank-poll',{delayInMinutes:0.1,periodInMinutes:1});
+  const a=await chrome.alarms.get(ALARM);
+  if(!a||Number(a.periodInMinutes)!==POLL_MINUTES){
+    if(a) await chrome.alarms.clear(ALARM);
+    await chrome.alarms.create(ALARM,{delayInMinutes:0.1,periodInMinutes:POLL_MINUTES});
   }
 }
 
-// Recreate the polling alarm whenever the service worker loads, not only on
-// install/browser startup. This is important for Opera unpacked-extension reloads.
-ensureAlarm().catch(()=>{});
-chrome.runtime.onInstalled.addListener(()=>{ensureAlarm();});
-chrome.runtime.onStartup.addListener(()=>{ensureAlarm();});
-chrome.alarms.onAlarm.addListener(alarm=>{
-  if(alarm.name==='rank-poll') runCheck(false).catch(()=>{});
+async function boot(){
+  await ensureAlarm();
+  const token=await getToken();
+  if(token) runCheck(false).catch(()=>{});
+}
+
+boot().catch(()=>{});
+chrome.runtime.onInstalled.addListener(()=>boot().catch(()=>{}));
+chrome.runtime.onStartup.addListener(()=>boot().catch(()=>{}));
+chrome.alarms.onAlarm.addListener(a=>{
+  if(a.name===ALARM) runCheck(false).catch(()=>{});
 });
 
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
   if(msg?.type==='runNow'){
-    runCheck(true).catch(()=>{});
-    sendResponse({ok:true,started:true});
-    return;
+    runCheck(true).then(r=>sendResponse(r)).catch(e=>sendResponse({ok:false,error:e?.message||String(e)}));
+    return true;
   }
   if(msg?.type==='ensureAlarm'){
-    ensureAlarm().then(()=>sendResponse({ok:true}));
+    ensureAlarm().then(()=>sendResponse({ok:true,version:EXT_VERSION}));
     return true;
   }
 });
