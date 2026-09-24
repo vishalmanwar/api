@@ -270,7 +270,7 @@ async function renderAlerts(){
   const recoveries=d.alerts.filter(x=>x.severity==='recovery').length;
   const rows=d.alerts.length?d.alerts.map(x=>{
     const pin=x.metadata?.pincode||'—';
-    const mail=x.notification_status==='sent'?'<span class="badge good">Email sent</span>':x.notification_status==='failed'?'<span class="badge bad">Email failed</span>':'<span class="tiny">—</span>';
+    const mail=(x.notification_status==='digest_sent'||x.notification_status==='sent')?'<span class="badge good">Digest sent</span>':(x.notification_status==='digest_failed'||x.notification_status==='failed')?'<span class="badge bad">Email failed</span>':x.notification_status==='pending_digest'?'<span class="badge blue">Pending digest</span>':'<span class="tiny">—</span>';
     return '<tr><td>'+esc(dateTimeFmt(x.triggered_at))+'</td><td><span class="badge '+(x.severity==='critical'?'bad':x.severity==='warning'?'warn':x.severity==='recovery'?'good':'')+'">'+esc(x.severity)+'</span></td><td><b>'+esc(x.title)+'</b><div class="tiny">'+esc(x.message||'')+'</div></td><td>'+esc(x.product?.asin||'—')+'</td><td>'+esc(x.keyword?.keyword||'—')+'</td><td>'+esc(pin)+'</td><td>'+(x.resolved_at?'<span class="badge good">Resolved</span>':'<span class="badge">Open</span>')+'</td><td>'+mail+'</td></tr>';
   }).join(''):'';
 
@@ -318,13 +318,13 @@ async function renderSettings(){
     '<div class="tiny" style="margin-top:10px">Opera polls automatically and changes Amazon to the pincode saved above. Do not create/reset another agent token while this agent is working.</div></div></div>';
 
   const emailPanel=
-    '<div class="panel"><div class="panelhead"><b>Email alerts</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
-    '<label><input type="checkbox" name="enabled" '+(notify.enabled?'checked':'')+'> Enable email alerts</label>'+
+    '<div class="panel"><div class="panelhead"><b>Scheduled email digest</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
+    '<label><input type="checkbox" name="enabled" '+(notify.enabled?'checked':'')+'> Email one complete summary after every automatic scheduled run</label>'+
     '<label>Alert email</label><input class="field" type="email" name="email_address" value="'+esc(notify.email_address||'')+'" placeholder="you@example.com">'+
     '<label>Resend API key</label><input class="field" type="password" name="api_key" placeholder="'+(notify.configured?'Configured — leave blank to keep current key':'re_...')+'">'+
     '<label>From address (optional)</label><input class="field" name="from_email" value="'+esc(notify.from_email||'')+'" placeholder="Zipify Rank Alerts <alerts@yourdomain.com>">'+
     '<div class="actions"><button class="primary">Save email alerts</button>'+(notify.configured?'<button id="testEmail" type="button" class="secondary">Send test email</button>':'')+'</div>'+
-    '<div class="tiny" style="margin-top:9px">Without an email provider key, Opera desktop notifications still work automatically. The API key is stored server-side and is never returned to the browser.</div></form></div></div>';
+    '<div class="tiny" style="margin-top:9px">You will receive one email after each automatic scheduled run finishes — not one email per alert. The digest includes every tracked keyword, organic rank, sponsored rank, changes, failures, new alerts and recoveries. Without an email provider key, Opera desktop notifications still work automatically. The API key is stored server-side and is never returned to the browser.</div></form></div></div>';
 
   const adsPanel=
     '<div class="panel"><div class="panelhead"><b>Amazon Ads integration</b><span class="badge '+(ad.configured&&ad.enabled?'good':'warn')+'">'+(ad.configured&&ad.enabled?'Connected':'CSV import mode')+'</span></div><div class="panelbody"><div class="muted" style="line-height:1.5">Sponsored placement tracking is automatic now. Spend/click/order/sales data requires Amazon Advertising API authorization; until that is connected, use the Advertising screen CSV importer.</div></div></div>';
@@ -346,7 +346,7 @@ async function renderSettings(){
     const fd=new FormData(e.target);
     const o=Object.fromEntries(fd);
     o.enabled=fd.get('enabled')==='on';
-    try{await api('/notification_settings',{method:'POST',body:JSON.stringify(o)});toast('Email alert settings saved');renderSettings()}catch(err){toast(err.message,true)}
+    try{await api('/notification_settings',{method:'POST',body:JSON.stringify(o)});toast('Scheduled email digest settings saved');renderSettings()}catch(err){toast(err.message,true)}
   };
 
   if($('testEmail')) $('testEmail').onclick=async()=>{
