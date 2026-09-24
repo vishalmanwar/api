@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.12-opera-auto-pin';
+const EXT_VERSION='2026.09.24.13-opera-auto-poll';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -444,9 +444,15 @@ async function runCheck(force=false){
 
 async function ensureAlarm(){
   const alarm=await chrome.alarms.get('rank-poll');
-  if(!alarm) await chrome.alarms.create('rank-poll',{periodInMinutes:5});
+  if(!alarm || Number(alarm.periodInMinutes)!==1){
+    if(alarm) await chrome.alarms.clear('rank-poll');
+    await chrome.alarms.create('rank-poll',{delayInMinutes:0.1,periodInMinutes:1});
+  }
 }
 
+// Recreate the polling alarm whenever the service worker loads, not only on
+// install/browser startup. This is important for Opera unpacked-extension reloads.
+ensureAlarm().catch(()=>{});
 chrome.runtime.onInstalled.addListener(()=>{ensureAlarm();});
 chrome.runtime.onStartup.addListener(()=>{ensureAlarm();});
 chrome.alarms.onAlarm.addListener(alarm=>{
