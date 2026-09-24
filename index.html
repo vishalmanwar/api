@@ -163,7 +163,7 @@ async function renderDashboard(){
       : (x.latest_check_status==='SUCCESS' && x.sponsored_found===false
           ? '<span class="empty">Not found</span>'
           : '<span class="empty">No data</span>');
-    const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank<=x.critical_rank?'Warning':'Critical'));
+    const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank>=x.critical_rank?'Critical':'Warning'));
     const lastChecked=x.latest_checked_at?new Date(x.latest_checked_at).toLocaleString():'—';
     return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
   }).join('');
