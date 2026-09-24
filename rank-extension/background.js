@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.10';
+const EXT_VERSION='2026.09.24.10-opera';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -73,16 +73,6 @@ async function amazonSnapshot(tabId){
     }
   });
   return res?.result||{};
-}
-
-async function cdp(tabId,method,params={}){
-  return await chrome.debugger.sendCommand({tabId},method,params);
-}
-
-async function realClick(tabId,x,y){
-  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mouseMoved',x,y,button:'none'});
-  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
-  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
 }
 
 async function setPincode(tabId,pincode){
