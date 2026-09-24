@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.11-opera-auto-pin';
+const EXT_VERSION='2026.09.24.12-opera-auto-pin';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -112,31 +112,59 @@ async function setPincode(tabId,pincode){
     });
     if(!loc?.result) throw new Error('Amazon Update location control not found.');
     await realClick(tabId,loc.result.x,loc.result.y);
-    await sleep(1200);
 
-    const [ui]=await chrome.scripting.executeScript({
-      target:{tabId},
-      func:()=>{
-        const input=document.querySelector('#GLUXZipUpdateInput') ||
-                    document.querySelector('input[data-action="GLUXPostalInputAction"]') ||
-                    document.querySelector('input[placeholder*="pincode" i]') ||
-                    document.querySelector('input[placeholder*="postal" i]');
-        const apply=document.querySelector('#GLUXZipUpdate') ||
-                    document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]') ||
-                    [...document.querySelectorAll('button,input')].find(el=>/apply|update/i.test((el.value||el.textContent||'').trim()));
-        if(!input) return {error:'Pincode input not found'};
-        if(!apply) return {error:'Apply button not found'};
-        const ir=input.getBoundingClientRect();
-        const ar=apply.getBoundingClientRect();
-        return {
-          input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
-          apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
-        };
+    // Amazon loads the location popover asynchronously. Wait up to ~10 seconds
+    // and retry the location click once if necessary.
+    let ui=null;
+    for(let attempt=0;attempt<20;attempt++){
+      await sleep(500);
+      const [probe]=await chrome.scripting.executeScript({
+        target:{tabId},
+        func:()=>{
+          const visible=el=>{
+            if(!el) return false;
+            const r=el.getBoundingClientRect();
+            return r.width>0 && r.height>0;
+          };
+          const candidates=[
+            document.querySelector('#GLUXZipUpdateInput'),
+            document.querySelector('input[data-action="GLUXPostalInputAction"]'),
+            document.querySelector('input[placeholder*="pincode" i]'),
+            document.querySelector('input[placeholder*="postal" i]'),
+            document.querySelector('input[aria-label*="pincode" i]'),
+            document.querySelector('input[aria-label*="postal" i]'),
+            ...document.querySelectorAll('.a-popover input[type="text"], .a-popover input:not([type]), [role="dialog"] input[type="text"]')
+          ].find(visible);
+
+          const applyCandidates=[
+            document.querySelector('#GLUXZipUpdate'),
+            document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]'),
+            document.querySelector('input.a-button-input[type="submit"]'),
+            ...document.querySelectorAll('.a-popover button,.a-popover input[type="submit"],[role="dialog"] button,[role="dialog"] input[type="submit"]')
+          ];
+          const apply=applyCandidates.find(el=>visible(el) && /apply|update|use this|done|continue/i.test((el.value||el.textContent||el.getAttribute('aria-label')||'').trim())) ||
+                      applyCandidates.find(visible);
+
+          if(!candidates || !apply) return null;
+          const ir=candidates.getBoundingClientRect();
+          const ar=apply.getBoundingClientRect();
+          return {
+            input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
+            apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
+          };
+        }
+      });
+      if(probe?.result){ ui=probe.result; break; }
+
+      // If the first click did not open the popover, click Update location again once.
+      if(attempt===5){
+        await realClick(tabId,loc.result.x,loc.result.y);
       }
-    });
-    if(!ui?.result || ui.result.error) throw new Error('Amazon location popup: '+(ui?.result?.error||'controls missing'));
+    }
 
-    await realClick(tabId,ui.result.input.x,ui.result.input.y);
+    if(!ui) throw new Error('Amazon location popup did not expose the pincode input after waiting.');
+
+    await realClick(tabId,ui.input.x,ui.input.y);
 
     // Ctrl+A and type the target pincode using trusted browser input events.
     await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
@@ -144,7 +172,7 @@ async function setPincode(tabId,pincode){
     await cdp(tabId,'Input.insertText',{text:String(pincode)});
     await sleep(300);
 
-    await realClick(tabId,ui.result.apply.x,ui.result.apply.y);
+    await realClick(tabId,ui.apply.x,ui.apply.y);
     await sleep(1800);
 
     // Some Amazon sessions show an extra Done/Continue button.
