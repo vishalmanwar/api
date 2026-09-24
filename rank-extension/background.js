@@ -22,7 +22,7 @@ async function api(action,{method='GET',body=null,force=false}={}){
   const url=API+'?action='+encodeURIComponent(action)+(force?'&force=1':'');
   const r=await fetch(url,{
     method,
-    headers:{'Content-Type':'application/json','X-Rank-Agent':token},
+    headers:{'Content-Type':'application/json','X-Rank-Agent':token,'X-Rank-Agent-Version':EXT_VERSION},
     body:body==null?undefined:JSON.stringify(body)
   });
   const raw=await r.text();
