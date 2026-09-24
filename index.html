@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.24.30</span></div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.24.33</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -306,6 +306,7 @@ async function renderSettings(){
   const t=d.settings.tracking||{};
   const agent=a.agent;
   const notify=n.notifications||{};
+  const lastDigest=notify.last_digest||{};
   const ad=ads.integration||{};
 
   const operaPanel=
@@ -318,13 +319,15 @@ async function renderSettings(){
     '<div class="tiny" style="margin-top:10px">Opera polls automatically and changes Amazon to the pincode saved above. Do not create/reset another agent token while this agent is working.</div></div></div>';
 
   const emailPanel=
-    '<div class="panel"><div class="panelhead"><b>Scheduled email digest</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
-    '<label><input type="checkbox" name="enabled" '+(notify.enabled?'checked':'')+'> Email one complete summary after every automatic scheduled run</label>'+
+    '<div class="panel"><div class="panelhead"><b>Rank-run email digest</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
+    '<label><input type="checkbox" name="enabled" '+(notify.enabled?'checked':'')+'> Email one complete summary after every completed rank run</label>'+
+    '<div class="metricline"><span>Latest digest</span><b>'+esc(lastDigest.status?(lastDigest.status+(lastDigest.sent_at?' · '+dateTimeFmt(lastDigest.sent_at):'')):'No run digest yet')+'</b></div>'+
+    '<div class="metricline"><span>Latest run type</span><b>'+esc(lastDigest.run_type||'—')+'</b></div>'+
     '<label>Alert email</label><input class="field" type="email" name="email_address" value="'+esc(notify.email_address||'')+'" placeholder="you@example.com">'+
     '<label>Resend API key</label><input class="field" type="password" name="api_key" placeholder="'+(notify.configured?'Configured — leave blank to keep current key':'re_...')+'">'+
     '<label>From address (optional)</label><input class="field" name="from_email" value="'+esc(notify.from_email||'')+'" placeholder="Zipify Rank Alerts <alerts@yourdomain.com>">'+
-    '<div class="actions"><button class="primary">Save email alerts</button>'+(notify.configured?'<button id="testEmail" type="button" class="secondary">Send test email</button>':'')+'</div>'+
-    '<div class="tiny" style="margin-top:9px">You will receive one email after each automatic scheduled run finishes — not one email per alert. The digest includes every tracked keyword, organic rank, sponsored rank, changes, failures, new alerts and recoveries. Without an email provider key, Opera desktop notifications still work automatically. The API key is stored server-side and is never returned to the browser.</div></form></div></div>';
+    '<div class="actions"><button class="primary">Save email digest</button>'+(notify.configured?'<button id="testEmail" type="button" class="secondary">Send test email</button>':'')+'</div>'+
+    '<div class="tiny" style="margin-top:9px">Manual and scheduled runs both send exactly one email after the full run finishes. The digest includes every tracked keyword, organic rank, sponsored rank, changes, failures, new alerts and recoveries. The API key is stored server-side and is never returned to the browser.</div></form></div></div>';
 
   const adsPanel=(ad.configured&&ad.enabled)
     ? '<div class="panel"><div class="panelhead"><b>Amazon Ads API</b><span class="badge good">Connected</span></div><div class="panelbody">'+
@@ -355,7 +358,7 @@ async function renderSettings(){
     const fd=new FormData(e.target);
     const o=Object.fromEntries(fd);
     o.enabled=fd.get('enabled')==='on';
-    try{await api('/notification_settings',{method:'POST',body:JSON.stringify(o)});toast('Scheduled email digest settings saved');renderSettings()}catch(err){toast(err.message,true)}
+    try{await api('/notification_settings',{method:'POST',body:JSON.stringify(o)});toast('Rank-run email digest settings saved');renderSettings()}catch(err){toast(err.message,true)}
   };
 
   if($('testEmail')) $('testEmail').onclick=async()=>{
