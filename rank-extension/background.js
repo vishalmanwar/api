@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.10-opera';
+const EXT_VERSION='2026.09.24.11-opera-auto-pin';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 let running=false;
 
@@ -60,7 +60,7 @@ async function amazonSnapshot(tabId){
       const body=(document.body?.innerText||'').trim();
       const line1=(document.querySelector('#glow-ingress-line1')?.textContent||'').trim();
       const line2=(document.querySelector('#glow-ingress-line2')?.textContent||'').trim();
-      const location=(line1+' '+line2).replace(/\s+/g,' ').trim();
+      const locationText=(line1+' '+line2).replace(/\s+/g,' ').trim();
       const cards=[...document.querySelectorAll('[data-component-type="s-search-result"][data-asin]')]
         .map((el,index)=>{
           const asin=(el.getAttribute('data-asin')||'').trim().toUpperCase();
@@ -69,20 +69,114 @@ async function amazonSnapshot(tabId){
             !!el.querySelector('[aria-label*="Sponsored"],[data-component-type="sp-sponsored-result"],[class*="s-sponsored"]');
           return {asin,sponsored,absolute:index+1};
         }).filter(x=>x.asin);
-      return {title:document.title,url:location.href,bodyChars:body.length,location,cards};
+      return {title:document.title,url:window.location.href,bodyChars:body.length,location:locationText,cards};
     }
   });
   return res?.result||{};
 }
 
+
+async function cdp(tabId,method,params={}){
+  return await chrome.debugger.sendCommand({tabId},method,params);
+}
+
+async function realClick(tabId,x,y){
+  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mouseMoved',x,y,button:'none'});
+  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
+  await cdp(tabId,'Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
+}
+
 async function setPincode(tabId,pincode){
-  const snap=await amazonSnapshot(tabId);
-  if((snap.bodyChars||0)<100) throw new Error('Amazon page did not load normally.');
-  const loc=String(snap.location||'');
-  if(!loc.includes(String(pincode))){
-    throw new Error('Open Amazon.in in this Edge window, manually set delivery pincode to '+pincode+', confirm the header shows '+pincode+', then click Run now again. Current header: '+loc);
+  // Always begin from Amazon home so the location control is present.
+  await navigate(tabId,'https://www.amazon.in/');
+  let snap=await amazonSnapshot(tabId);
+  if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
+
+  if(String(snap.location||'').includes(String(pincode))) return snap.location;
+
+  await chrome.debugger.attach({tabId},'1.3').catch(e=>{
+    if(!String(e?.message||e).includes('Another debugger is already attached')) throw e;
+  });
+
+  try{
+    // Open Amazon's delivery-location popup using a browser-level click.
+    const [loc]=await chrome.scripting.executeScript({
+      target:{tabId},
+      func:()=>{
+        const el=document.querySelector('#nav-global-location-popover-link') ||
+                 document.querySelector('#glow-ingress-block');
+        if(!el) return null;
+        const r=el.getBoundingClientRect();
+        return {x:r.left+r.width/2,y:r.top+r.height/2};
+      }
+    });
+    if(!loc?.result) throw new Error('Amazon Update location control not found.');
+    await realClick(tabId,loc.result.x,loc.result.y);
+    await sleep(1200);
+
+    const [ui]=await chrome.scripting.executeScript({
+      target:{tabId},
+      func:()=>{
+        const input=document.querySelector('#GLUXZipUpdateInput') ||
+                    document.querySelector('input[data-action="GLUXPostalInputAction"]') ||
+                    document.querySelector('input[placeholder*="pincode" i]') ||
+                    document.querySelector('input[placeholder*="postal" i]');
+        const apply=document.querySelector('#GLUXZipUpdate') ||
+                    document.querySelector('input[aria-labelledby="GLUXZipUpdate-announce"]') ||
+                    [...document.querySelectorAll('button,input')].find(el=>/apply|update/i.test((el.value||el.textContent||'').trim()));
+        if(!input) return {error:'Pincode input not found'};
+        if(!apply) return {error:'Apply button not found'};
+        const ir=input.getBoundingClientRect();
+        const ar=apply.getBoundingClientRect();
+        return {
+          input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
+          apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
+        };
+      }
+    });
+    if(!ui?.result || ui.result.error) throw new Error('Amazon location popup: '+(ui?.result?.error||'controls missing'));
+
+    await realClick(tabId,ui.result.input.x,ui.result.input.y);
+
+    // Ctrl+A and type the target pincode using trusted browser input events.
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
+    await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
+    await cdp(tabId,'Input.insertText',{text:String(pincode)});
+    await sleep(300);
+
+    await realClick(tabId,ui.result.apply.x,ui.result.apply.y);
+    await sleep(1800);
+
+    // Some Amazon sessions show an extra Done/Continue button.
+    const [confirm]=await chrome.scripting.executeScript({
+      target:{tabId},
+      func:()=>{
+        const el=document.querySelector('#GLUXConfirmClose') ||
+                 document.querySelector('button[name="glowDoneButton"]') ||
+                 document.querySelector('input[name="glowDoneButton"]') ||
+                 [...document.querySelectorAll('button,input')].find(x=>/done|continue/i.test((x.value||x.textContent||'').trim()));
+        if(!el) return null;
+        const r=el.getBoundingClientRect();
+        return {x:r.left+r.width/2,y:r.top+r.height/2};
+      }
+    });
+    if(confirm?.result){
+      await realClick(tabId,confirm.result.x,confirm.result.y);
+      await sleep(800);
+    }
+
+    await chrome.tabs.reload(tabId);
+    await waitTabComplete(tabId,60000);
+    await sleep(1200);
+
+    snap=await amazonSnapshot(tabId);
+    if(!String(snap.location||'').includes(String(pincode))){
+      throw new Error('AUTO_PIN_FAILED|Wanted '+pincode+'|Header '+(snap.location||'unknown'));
+    }
+    return snap.location;
+  }finally{
+    await chrome.debugger.detach({tabId}).catch(()=>{});
   }
-  return loc;
 }
 
 async function scrapeKeyword(tabId,keyword,rules,pincode){
@@ -201,7 +295,10 @@ async function runCheck(force=false){
       if(!chosen) chosen=amazonTabs[0]||null;
     }
 
-    if(!chosen) throw new Error('No Amazon.in tab found. Open Amazon.in, set pincode 380015 manually, then click Run now once.');
+    if(!chosen){
+      chosen=await chrome.tabs.create({url:'https://www.amazon.in/',active:true});
+      await waitTabComplete(chosen.id,60000);
+    }
     tab=chosen;
     await chrome.tabs.update(tab.id,{active:true});
     await waitTabComplete(tab.id,60000).catch(()=>{});
@@ -260,11 +357,11 @@ async function runCheck(force=false){
     return {ok:true,...stored};
   }catch(e){
     const err=e?.message||String(e);
-    if(err.startsWith('MANUAL_PINCODE_REQUIRED|')){
+    if(err.startsWith('AUTO_PIN_FAILED|')){
       const parts=err.split('|');
-      const wanted=parts[1]||'380015';
+      const wanted=(parts[1]||'Wanted 380015').replace('Wanted ','');
       const current=parts.slice(2).join('|')||'unknown';
-      await setStatus('Action needed v'+EXT_VERSION+': Amazon is overriding the delivery pincode. In the Amazon tab, click Update location, enter '+wanted+', click Apply, and confirm the header shows '+wanted+'. Then click Run now again. Current header: '+current,{lastError:err,extensionVersion:EXT_VERSION,needsManualPincode:true});
+      await setStatus('Automatic pincode setup failed v'+EXT_VERSION+'. Wanted '+wanted+'. '+current,{lastError:err,extensionVersion:EXT_VERSION,needsManualPincode:false});
       // Keep the Amazon tab open and make it visible so the user can correct location once.
       if(tab?.id){
         await chrome.tabs.update(tab.id,{active:true}).catch(()=>{});
@@ -273,7 +370,7 @@ async function runCheck(force=false){
     }else{
       await setStatus('Failed v'+EXT_VERSION+': '+err,{lastError:err,extensionVersion:EXT_VERSION});
     }
-    const setupPincodeIssue=/manually set delivery pincode|Current header:|No Amazon\.in tab found/i.test(err);
+    const setupPincodeIssue=/AUTO_PIN_FAILED|Amazon location popup|Update location control not found|Pincode input not found|Apply button not found/i.test(err);
     if(conf?.rules?.length && !setupPincodeIssue){
       const failedResults=conf.rules.map(r=>({
         rule_id:r.rule_id,
