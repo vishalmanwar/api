@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.25.34</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.25.40</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -41,6 +41,13 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="app" class="layout hidden">
   <aside>
     <div class="brand">Zipify Rank<br>Intelligence</div>
+    <div style="margin:0 4px 20px">
+      <div class="tiny" style="color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Market</div>
+      <select id="marketSelect" class="field" style="background:#1b1b1b;color:#fff;border-color:#333">
+        <option value="IN">India</option>
+        <option value="US">USA</option>
+      </select>
+    </div>
     <div class="nav" id="nav">
       <button data-view="dashboard">Dashboard</button>
       <button data-view="products">Products</button>
@@ -61,12 +68,40 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
-const num=n=>new Intl.NumberFormat('en-IN').format(Number(n||0));
+let selectedMarket=localStorage.getItem('zri_market')||'IN';
+let marketsLoaded=false;
+let marketCatalog={
+  IN:{market_key:'IN',market_name:'India',marketplace:'amazon.in',currency_code:'INR',timezone:'Asia/Kolkata',location_type:'pincode',location_value:'500001',ads_region:'FE'},
+  US:{market_key:'US',market_name:'USA',marketplace:'amazon.com',currency_code:'USD',timezone:'America/Chicago',location_type:'postal_code',location_value:'',ads_region:'NA'}
+};
+let currentMarket=marketCatalog[selectedMarket]||marketCatalog.IN;
+const money=n=>new Intl.NumberFormat(currentMarket.currency_code==='USD'?'en-US':'en-IN',{style:'currency',currency:currentMarket.currency_code||'INR',maximumFractionDigits:2}).format(Number(n||0));
+const num=n=>new Intl.NumberFormat(currentMarket.currency_code==='USD'?'en-US':'en-IN').format(Number(n||0));
 const pct=n=>n==null?'—':Number(n).toFixed(1)+'%';
-const DISPLAY_TZ='Asia/Kolkata';
-const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric'}):'—';
-const dateTimeFmt=v=>v?(new Date(v).toLocaleString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})+' IST'):'—';
+const dateFmt=v=>v?new Date(v).toLocaleDateString('en-US',{timeZone:currentMarket.timezone||'UTC',day:'2-digit',month:'short',year:'numeric'}):'—';
+const dateTimeFmt=v=>v?new Date(v).toLocaleString('en-US',{timeZone:currentMarket.timezone||'UTC',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZoneName:'short'}):'—';
+const marketFlag=()=>currentMarket.market_key==='US'?'USA':'India';
+const marketTitle=()=>marketFlag();
+const locationLabelUi=()=>currentMarket.location_type==='postal_code'?'ZIP code':'pincode';
+function setCurrentMarket(key){
+  selectedMarket=String(key||'IN').toUpperCase();
+  currentMarket=marketCatalog[selectedMarket]||marketCatalog.IN;
+  localStorage.setItem('zri_market',selectedMarket);
+  if($('marketSelect')) $('marketSelect').value=selectedMarket;
+}
+async function ensureMarkets(){
+  if(marketsLoaded){setCurrentMarket(selectedMarket);return}
+  const d=await api('/markets');
+  for(const m of d.markets||[]) marketCatalog[m.market_key]=m;
+  marketsLoaded=true;
+  if(!marketCatalog[selectedMarket]) selectedMarket='IN';
+  setCurrentMarket(selectedMarket);
+  const s=$('marketSelect');
+  if(s){
+    s.innerHTML=Object.values(marketCatalog).filter(m=>m.enabled!==false).map(m=>'<option value="'+esc(m.market_key)+'">'+esc(m.market_name)+'</option>').join('');
+    s.value=selectedMarket;
+  }
+}
 function parseCsv(text){
   const rows=[];let row=[],field='',quoted=false;
   for(let i=0;i<text.length;i++){
@@ -136,6 +171,7 @@ function apiUrl(path){
   const params=new URLSearchParams(parts[1]||'');
   if(action==='products'&&seg[1]){action='product_update';params.set('id',seg[1])}
   params.set('action',action);
+  if(!params.has('market')) params.set('market',selectedMarket);
   return API+'?'+params.toString();
 }
 async function api(path,opts={}){
@@ -155,7 +191,7 @@ function statusBadge(status){
 function emptyState(title,text){return '<div class="empty-state"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
 
 async function renderDashboard(){
-  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring')+'<div class="loader">Loading dashboard…</div>';
+  $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring')+'<div class="loader">Loading dashboard…</div>';
   const [d,p]=await Promise.all([api('/dashboard'),api('/provider_status')]);
   const rows=d.rows.map(x=>{
     const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
@@ -168,19 +204,25 @@ async function renderDashboard(){
     const lastChecked=dateTimeFmt(x.latest_checked_at);
     return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
   }).join('');
-  const action=p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up free rank agent</button>';
-  const providerNote=p.connected
-    ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · Pincode <b>'+esc(p.pincode)+'</b>. Every successful check is saved as a historical snapshot; new checks do not overwrite older ranks.</div>'
-    : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>';
-  $('main').innerHTML=pageHead('Search visibility','Amazon India · pincode-based rank monitoring',action)+
+  const locationReady=String(currentMarket.location_value||'').trim()!=='';
+  const action=!locationReady
+    ? '<button id="configureMarket" class="primary">Configure '+esc(locationLabelUi())+'</button>'
+    : (p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up rank agent</button>');
+  const providerNote=!locationReady
+    ? '<div class="note"><span class="badge warn">Setup required</span> Set the '+esc(currentMarket.market_name)+' '+esc(locationLabelUi())+' in Settings before creating tracking rules or running checks.</div>'
+    : (p.connected
+      ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b>. Every successful check is saved as a historical snapshot; new checks do not overwrite older ranks.</div>'
+      : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>');
+  $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring',action)+
   '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Pincode</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Last checked</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Location</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Last checked</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  if($('configureMarket')) $('configureMarket').onclick=()=>navigate('settings');
   if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
   if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
     const b=$('runRankCheck');b.disabled=true;b.textContent='Queueing check…';
     try{
       await api('/rank_check_now',{method:'POST',body:'{}'});
-      toast('Rank check queued. Opera will use pincode '+(p.pincode||'from Settings')+' automatically.');
+      toast('Rank check queued for '+currentMarket.market_name+'. Opera will use '+locationLabelUi()+' '+(p.location_value||p.pincode||'from Settings')+' automatically.');
       b.textContent='Queued';
       setTimeout(()=>renderDashboard(),4000);
     }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Run live rank check'}
@@ -190,7 +232,7 @@ async function renderDashboard(){
 async function renderProducts(){
   const d=await api('/products');
   const rows=d.products.map(p=>'<tr><td><b>'+esc(p.product_name)+'</b><div class="tiny">'+esc(p.role||'')+'</div></td><td>'+esc(p.asin)+'</td><td>'+p.tracked_keywords+'</td><td>'+statusBadge(p.active?'Active':'Inactive')+'</td><td><button class="btn-sm toggle-product" data-id="'+p.id+'" data-active="'+p.active+'">'+(p.active?'Disable':'Enable')+'</button></td></tr>').join('');
-  $('main').innerHTML=pageHead('Products','Manage the ASINs included in rank tracking')+
+  $('main').innerHTML=pageHead('Products',marketTitle()+' · Manage the ASINs included in rank tracking')+
   '<div class="grid2"><div class="panel"><div class="panelhead"><b>Tracked products</b><span class="muted">'+d.products.length+' ASINs</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>ASIN</th><th>Keywords</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
   '<div class="panel"><div class="panelhead"><b>Add product</b></div><div class="panelbody"><form id="productForm"><label>ASIN</label><input class="field" name="asin" placeholder="B0XXXXXXXX" maxlength="10" required><label>Product name</label><input class="field" name="product_name" placeholder="Zipify..." required><label>Role</label><input class="field" name="role" placeholder="Hero / Growth / Sell-through"><div class="actions"><button class="primary">Save product</button></div></form></div></div></div>';
   $('productForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await api('/products',{method:'POST',body:JSON.stringify(Object.fromEntries(f))});toast('Product saved');renderProducts()}catch(err){toast(err.message,true)}};
@@ -202,7 +244,7 @@ async function renderKeywords(){
   const rows=k.keywords.map(x=>'<tr><td><b>'+esc(x.keyword)+'</b></td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+(x.search_volume??'—')+'</td><td>'+(x.products.length?x.products.map(q=>'<span class="badge">'+esc(q.asin)+'</span>').join(' '):'<span class="empty">Not tracked</span>')+'</td></tr>').join('');
   const productOpts=p.products.filter(x=>x.active).map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
   const keywordOpts=k.keywords.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.keyword)+'</option>').join('');
-  $('main').innerHTML=pageHead('Keywords','Build your keyword set and assign keywords to ASINs · Amazon Brand Analytics search volume refreshes automatically')+
+  $('main').innerHTML=pageHead('Keywords',marketTitle()+' · Build your keyword set and assign keywords to ASINs · Amazon Brand Analytics search volume refreshes automatically')+
   '<div class="grid2"><div class="panel"><div class="panelhead"><b>Keyword library</b><span class="muted">'+k.keywords.length+' keywords</span></div><div class="tablewrap"><table><thead><tr><th>Keyword</th><th>Priority</th><th>Search volume (optional)</th><th>Tracked ASINs</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
   '<div><div class="panel"><div class="panelhead"><b>Add keyword</b></div><div class="panelbody"><form id="keywordForm"><label>Keyword</label><input class="field" name="keyword" required><div class="formgrid"><div><label>Priority</label><select class="field" name="priority"><option>critical</option><option>high</option><option selected>medium</option><option>low</option></select></div><div><label>Search volume (Amazon SQP / optional override)</label><input class="field" name="search_volume" type="number" min="0" placeholder="Leave blank to use Amazon SQP"></div></div><div class="actions"><button class="primary">Save keyword</button></div></form></div></div>'+
   '<div class="panel"><div class="panelhead"><b>Start / update tracking</b></div><div class="panelbody"><form id="trackingForm"><label>Product</label><select class="field" name="asin" required>'+productOpts+'</select><label>Keyword</label><select class="field" name="keyword_id" required>'+keywordOpts+'</select><div class="formgrid"><div><label>Target rank</label><input class="field" name="organic_target_rank" value="4" type="number" min="1"></div><div><label>Warning from</label><input class="field" name="organic_warning_rank" value="5" type="number" min="2"></div><div><label>Critical from</label><input class="field" name="organic_critical_rank" value="8" type="number" min="3"></div><div><label>Sponsored target</label><input class="field" name="sponsored_target_rank" value="2" type="number" min="1"></div></div><div class="tiny" style="margin-top:8px">Saving the same ASIN + keyword updates its thresholds.</div><div class="actions"><button class="primary">Save tracking rule</button></div></form></div></div></div></div>';
@@ -222,7 +264,7 @@ async function renderCampaigns(){
   const po=p.products.filter(x=>x.active).map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
   const ko=k.keywords.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.keyword)+'</option>').join('');
 
-  $('main').innerHTML=pageHead('Ranking Campaigns','Measure keyword movement from starting rank to goal · pincode '+esc(c.pincode||'—'))+
+  $('main').innerHTML=pageHead('Ranking Campaigns','Measure keyword movement from starting rank to goal · '+locationLabelUi()+' '+esc(c.location_value||c.pincode||'—'))+
   '<div class="grid2"><div class="panel"><div class="panelhead"><b>Campaign progress</b><span class="muted">'+c.campaigns.length+' campaigns</span></div>'+
   (rows?'<div class="tablewrap"><table><thead><tr><th>Campaign</th><th>ASIN</th><th>Keyword</th><th>Start</th><th>Current</th><th>Goal</th><th>Progress</th><th>Status</th><th>Started</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No campaigns yet','Create a focused ranking campaign from the form. Starting rank can be filled automatically from the latest rank.'))+
   '</div><div class="panel"><div class="panelhead"><b>New campaign</b></div><div class="panelbody"><form id="campaignForm"><label>Product</label><select class="field" name="asin">'+po+'</select><label>Keyword</label><select class="field" name="keyword_id">'+ko+'</select><label>Campaign title</label><input class="field" name="title" placeholder="Optional"><div class="formgrid"><div><label>Starting rank</label><input class="field" name="starting_organic_rank" type="number" min="1" placeholder="Auto"></div><div><label>Goal rank</label><input class="field" name="goal_rank" value="4" type="number" min="1"></div></div><label>Associated PPC campaign</label><input class="field" name="associated_ppc_campaign" placeholder="Optional"><div class="actions"><button class="primary">Create campaign</button></div></form></div></div></div>';
@@ -235,7 +277,7 @@ async function renderAdvertising(){
   const rows=d.rows.length?d.rows.map(x=>'<tr><td>'+dateFmt(x.metric_date)+'</td><td>'+esc(x.product?.asin||'—')+'</td><td>'+esc(x.keyword?.keyword||x.target||'—')+'</td><td>'+esc(x.campaign_name||'—')+'</td><td>'+num(x.impressions)+'</td><td>'+num(x.clicks)+'</td><td>'+money(x.spend)+'</td><td>'+num(x.orders)+'</td><td>'+money(x.sales)+'</td><td>'+pct(x.acos)+'</td></tr>').join(''):'';
   const integration=d.integration||{};
 
-  $('main').innerHTML=pageHead('Advertising','PPC performance + automatic sponsored-position intelligence')+
+  $('main').innerHTML=pageHead('Advertising',marketTitle()+' · PPC performance + automatic sponsored-position intelligence')+
   '<div class="stats"><div class="stat"><span>Spend</span><b>'+money(d.summary.spend)+'</b></div><div class="stat"><span>Sales</span><b>'+money(d.summary.sales)+'</b></div><div class="stat"><span>ACOS</span><b>'+pct(d.summary.acos)+'</b></div><div class="stat"><span>ROAS</span><b>'+(d.summary.roas==null?'—':Number(d.summary.roas).toFixed(2))+'</b></div></div>'+
   '<div class="grid2"><div class="panel"><div class="panelhead"><b>Advertising performance</b><span class="muted">Campaign × keyword/target</span></div>'+
   (rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword/target</th><th>Campaign</th><th>Impressions</th><th>Clicks</th><th>Spend</th><th>Orders</th><th>Sales</th><th>ACOS</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No PPC report data yet','Sponsored search placement is already tracked automatically. Import an Amazon Ads CSV here when you want spend, clicks, orders, sales and ACOS in the same dashboard.'))+
@@ -275,10 +317,10 @@ async function renderAlerts(){
     return '<tr><td>'+esc(dateTimeFmt(x.triggered_at))+'</td><td><span class="badge '+(x.severity==='critical'?'bad':x.severity==='warning'?'warn':x.severity==='recovery'?'good':'')+'">'+esc(x.severity)+'</span></td><td><b>'+esc(x.title)+'</b><div class="tiny">'+esc(x.message||'')+'</div></td><td>'+esc(x.product?.asin||'—')+'</td><td>'+esc(x.keyword?.keyword||'—')+'</td><td>'+esc(pin)+'</td><td>'+(x.resolved_at?'<span class="badge good">Resolved</span>':'<span class="badge">Open</span>')+'</td><td>'+mail+'</td></tr>';
   }).join(''):'';
 
-  $('main').innerHTML=pageHead('Alerts','Automatic organic-rank, sponsored-position, recovery and collection alerts')+
+  $('main').innerHTML=pageHead('Alerts',marketTitle()+' · Automatic organic-rank, sponsored-position, recovery and collection alerts')+
   '<div class="stats"><div class="stat"><span>Open critical</span><b>'+critical+'</b></div><div class="stat"><span>Open warnings</span><b>'+warning+'</b></div><div class="stat"><span>Open total</span><b>'+open.length+'</b></div><div class="stat"><span>Recoveries</span><b>'+recoveries+'</b></div></div>'+
   '<div class="panel"><div class="panelhead"><b>Alert history</b><span class="muted">'+d.alerts.length+' events</span></div>'+
-  (rows?'<div class="tablewrap"><table><thead><tr><th>Triggered</th><th>Severity</th><th>Alert</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Status</th><th>Email</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No alerts yet','The alert engine is active. New rank checks will create an event only when a threshold issue appears, changes severity, or recovers.'))+
+  (rows?'<div class="tablewrap"><table><thead><tr><th>Triggered</th><th>Severity</th><th>Alert</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Status</th><th>Email</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No alerts yet','The alert engine is active. New rank checks will create an event only when a threshold issue appears, changes severity, or recovers.'))+
   '</div>';
 }
 
@@ -293,10 +335,10 @@ async function renderReports(days=30){
     return '<tr><td>'+esc(dateTimeFmt(x.checked_at))+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||'—')+'</td><td>'+organic+'</td><td>'+sponsored+'</td><td>'+(x.organic_page??'—')+'</td><td>'+(x.organic_absolute_position??'—')+'</td><td><span class="badge '+(success?'good':'bad')+'">'+esc(x.check_status)+'</span></td></tr>';
   }).join('');
 
-  $('main').innerHTML=pageHead('Reports','Organic + sponsored history for current pincode '+esc(d.pincode||'—'),'<select id="reportDays" class="field" style="width:auto"><option value="7" '+(days==7?'selected':'')+'>7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
+  $('main').innerHTML=pageHead('Reports','Organic + sponsored history for '+marketTitle()+' · '+locationLabelUi()+' '+esc(d.location_value||d.pincode||'—'),'<select id="reportDays" class="field" style="width:auto"><option value="7" '+(days==7?'selected':'')+'>7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
   '<div class="stats"><div class="stat"><span>Rank observations</span><b>'+d.summary.ranked_observations+'</b></div><div class="stat"><span>Average rank</span><b>'+(d.summary.average_rank==null?'—':'#'+Number(d.summary.average_rank).toFixed(1))+'</b></div><div class="stat"><span>Top 4 visibility</span><b>'+pct(d.summary.top4_pct)+'</b></div><div class="stat"><span>Sponsored visibility</span><b>'+pct(d.summary.sponsored_visibility_avg)+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">Every successful/failed check stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Automatic Opera checks will populate this history.'))+'</div>'+
-  '<div class="panel"><div class="panelhead"><b>Daily metrics</b><span class="muted">Current-pincode median / best / worst only</span></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Pincode</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Metrics populate automatically from stored rank snapshots.'))+'</div>';
+  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">Every successful/failed check stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Automatic Opera checks will populate this history.'))+'</div>'+
+  '<div class="panel"><div class="panelhead"><b>Daily metrics</b><span class="muted">Current-location median / best / worst only</span></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Metrics populate automatically from stored rank snapshots.'))+'</div>';
   $('reportDays').onchange=e=>renderReports(Number(e.target.value));
 }
 
@@ -309,15 +351,20 @@ async function renderSettings(){
   const notify=n.notifications||{};
   const lastDigest=notify.last_digest||{};
   const ad=ads.integration||{};
+  currentMarket=d.market||currentMarket;
+  marketCatalog[currentMarket.market_key]=currentMarket;
+  setCurrentMarket(currentMarket.market_key);
+  const locLabel=locationLabelUi();
+  const locationMax=currentMarket.location_type==='postal_code'?10:6;
 
   const operaPanel=
     '<div class="panel"><div class="panelhead"><b>Opera Rank Agent</b><span class="badge '+(agent?.last_seen_at?'good':'warn')+'">'+(agent?.last_seen_at?'Connected':'Waiting')+'</span></div><div class="panelbody">'+
     '<div class="metricline"><span>Agent</span><b>'+esc(agent?.name||'Opera Rank Extension')+'</b></div>'+
     '<div class="metricline"><span>Last seen</span><b>'+esc(agent?.last_seen_at?dateTimeFmt(agent.last_seen_at):'Not yet')+'</b></div>'+
-    '<div class="metricline"><span>Current pincode</span><b>'+esc(t.pincode||'—')+'</b></div>'+
+    '<div class="metricline"><span>Current '+esc(locLabel)+'</span><b>'+esc(t.location_value||t.pincode||'—')+'</b></div>'+
     '<div class="metricline"><span>Provider status</span><b>'+esc(p.status||'Waiting')+'</b></div>'+
     '<div class="actions"><button id="testRankNow" class="primary">Queue live rank check</button></div>'+
-    '<div class="tiny" style="margin-top:10px">Opera polls automatically and changes Amazon to the pincode saved above. Do not create/reset another agent token while this agent is working.</div></div></div>';
+    '<div class="tiny" style="margin-top:10px">Opera polls automatically and switches to '+esc(currentMarket.marketplace)+' with the '+esc(locLabel)+' saved above. One extension handles both markets.</div></div></div>';
 
   const emailPanel=
     '<div class="panel"><div class="panelhead"><b>Rank-run email digest</b><span class="badge '+(notify.enabled&&notify.configured?'good':'warn')+'">'+(notify.enabled&&notify.configured?'Enabled':'Not configured')+'</span></div><div class="panelbody"><form id="notificationForm">'+
@@ -332,25 +379,26 @@ async function renderSettings(){
 
   const adsPanel=(ad.configured&&ad.enabled)
     ? '<div class="panel"><div class="panelhead"><b>Amazon Ads API</b><span class="badge good">Connected</span></div><div class="panelbody">'+
-      '<div class="metricline"><span>India profile</span><b>'+esc(ad.profile_id||'—')+'</b></div>'+
+      '<div class="metricline"><span>'+esc(currentMarket.market_name)+' profile</span><b>'+esc(ad.profile_id||'—')+'</b></div>'+
       '<div class="metricline"><span>Region</span><b>'+esc(ad.region||'FE')+'</b></div>'+
       '<div class="metricline"><span>Last tested</span><b>'+esc(ad.last_tested_at?dateTimeFmt(ad.last_tested_at):'—')+'</b></div>'+
       '<div class="actions"><button id="adsSyncNow" class="primary">Sync Amazon Ads now</button><button id="adsDisconnect" class="secondary">Disconnect</button></div>'+
       '<div class="tiny" style="margin-top:9px">Daily Sponsored Products targeting data is also checked automatically every hour for completed reports.</div></div></div>'
     : '<div class="panel"><div class="panelhead"><b>Amazon Ads API</b><span class="badge warn">Approval required</span></div><div class="panelbody">'+
-      '<div class="muted" style="line-height:1.5">Your existing SP-API token was tested and Amazon Ads returned 401, so it cannot be reused for advertising. If your Amazon Ads application is approved, enter its LWA credentials below; the system will test them and auto-detect your India advertising profile.</div>'+
-      '<form id="adsConnectForm"><label>Amazon Ads Client ID</label><input class="field" name="client_id" autocomplete="off" placeholder="amzn1.application-oa2-client..."><label>Amazon Ads Client Secret</label><input class="field" type="password" name="client_secret" autocomplete="new-password"><label>Amazon Ads Refresh Token</label><input class="field" type="password" name="refresh_token" autocomplete="new-password"><label>Region</label><select class="field" name="region"><option value="FE" selected>FE / APAC (India)</option><option value="EU">EU</option><option value="NA">NA</option></select><div class="actions"><button class="primary">Test & connect Amazon Ads</button></div></form>'+
+      '<div class="muted" style="line-height:1.5">Your existing SP-API token was tested and Amazon Ads returned 401, so it cannot be reused for advertising. If your Amazon Ads application is approved, enter its LWA credentials below; the system will test them and auto-detect your '+esc(currentMarket.market_name)+' advertising profile.</div>'+
+      '<form id="adsConnectForm"><label>Amazon Ads Client ID</label><input class="field" name="client_id" autocomplete="off" placeholder="amzn1.application-oa2-client..."><label>Amazon Ads Client Secret</label><input class="field" type="password" name="client_secret" autocomplete="new-password"><label>Amazon Ads Refresh Token</label><input class="field" type="password" name="refresh_token" autocomplete="new-password"><label>Region</label><select class="field" name="region"><option value="FE" '+((ad.region||currentMarket.ads_region)==='FE'?'selected':'')+'>FE / APAC</option><option value="EU" '+((ad.region||currentMarket.ads_region)==='EU'?'selected':'')+'>EU</option><option value="NA" '+((ad.region||currentMarket.ads_region)==='NA'?'selected':'')+'>NA / USA</option></select><div class="actions"><button class="primary">Test & connect Amazon Ads</button></div></form>'+
       '<div class="tiny" style="margin-top:9px">Secrets are stored server-side and are never returned to the browser. Until Ads API approval is available, the Advertising page CSV importer remains fully usable.</div></div></div>';
 
   $('main').innerHTML=pageHead('Settings','Tracking, automation and notification configuration')+
-  '<div class="grid2"><div><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" inputmode="numeric" maxlength="6" value="'+esc(t.pincode||'')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times — IST (Asia/Kolkata)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><div class="tiny" style="margin:7px 0 10px">Timezone is locked to <b>Asia/Kolkata (IST)</b>. Your Texas/Windows timezone does not change these run times.</div><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+emailPanel+'</div>'+
-  '<div>'+operaPanel+adsPanel+'<div class="note"><b>Pincode changes apply to every active tracking rule.</b> Reports and daily metrics keep old locations separate instead of mixing them with the new pincode.</div></div></div>';
+  '<div class="grid2"><div><div class="panel"><div class="panelhead"><b>'+esc(currentMarket.market_name)+' tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>'+esc(currentMarket.marketplace)+' '+esc(locLabel)+'</label><input class="field" name="location_value" inputmode="numeric" maxlength="'+locationMax+'" value="'+esc(t.location_value||t.pincode||'')+'" placeholder="'+(currentMarket.market_key==='US'?'e.g. 75063':'e.g. 500001')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times — '+esc(currentMarket.timezone)+'</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><div class="tiny" style="margin:7px 0 10px">Schedule is locked to <b>'+esc(currentMarket.timezone)+'</b>; your computer timezone does not change these run times.</div><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save '+esc(currentMarket.market_name)+' settings</button></div></form></div></div>'+emailPanel+'</div>'+
+  '<div>'+operaPanel+adsPanel+'<div class="note"><b>'+esc(locLabel)+' changes apply only to '+esc(currentMarket.market_name)+' tracking rules.</b> India and USA history remain completely separate.</div></div></div>';
 
   $('settingsForm').onsubmit=async e=>{
     e.preventDefault();
     const o=Object.fromEntries(new FormData(e.target));
     o.organic_schedule=String(o.organic_schedule).split(',').map(x=>x.trim()).filter(Boolean);
     o.sponsored_frequency_hours=Number(o.sponsored_frequency_hours);
+    o.location_value=String(o.location_value||'').trim();
     try{await api('/settings',{method:'POST',body:JSON.stringify(o)});toast('Tracking settings saved');renderSettings()}catch(err){toast(err.message,true)}
   };
 
@@ -404,8 +452,13 @@ async function renderSettings(){
 const renderers={dashboard:renderDashboard,products:renderProducts,keywords:renderKeywords,campaigns:renderCampaigns,advertising:renderAdvertising,alerts:renderAlerts,reports:renderReports,settings:renderSettings};
 async function navigate(view){
   if(!renderers[view])view='dashboard';setNav(view);location.hash=view;$('main').innerHTML='<div class="loader">Loading…</div>';
-  try{await renderers[view]()}catch(err){if(err.message!=='Unauthorized'){$('main').innerHTML=pageHead('Something went wrong','The screen could not load')+'<div class="note">'+esc(err.message)+'</div>';toast(err.message,true)}}
+  try{await ensureMarkets();await renderers[view]()}catch(err){if(err.message!=='Unauthorized'){$('main').innerHTML=pageHead('Something went wrong','The screen could not load')+'<div class="note">'+esc(err.message)+'</div>';toast(err.message,true)}}
 }
+$('marketSelect').value=selectedMarket;
+$('marketSelect').onchange=e=>{
+  setCurrentMarket(e.target.value);
+  navigate(location.hash.slice(1)||'dashboard');
+};
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
 $('loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
