@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Zipify Rank Agent",
-  "version": "1.3.0",
-  "description": "Free Amazon.in rank collector for Zipify Rank Intelligence.",
+  "name": "Zipify Multi-Market Rank Agent",
+  "version": "1.4.0",
+  "description": "Automated Amazon India and USA organic/sponsored rank tracking for Zipify.",
   "permissions": [
     "storage",
     "alarms",
