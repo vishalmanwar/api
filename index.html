@@ -7,7 +7,7 @@
 <meta name="description" content="Amazon keyword rank and sponsored visibility dashboard for Zipify.">
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f7f7f5}
-*{box-sizing:border-box}body{margin:0}.hidden{display:none!important}button,input,select{font:inherit}
+*{box-sizing:border-box}body{margin:0}.hidden{display:none!important}button,input,select,textarea{font:inherit}
 .login-shell{min-height:100vh;display:grid;place-items:center;padding:22px}.login-card{width:min(410px,100%);background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.05)}
 .logo{font-size:19px;font-weight:750;margin-bottom:5px}.sub{color:#737373;font-size:13px;line-height:1.45;margin-bottom:24px}
 label{font-size:12px;font-weight:650;display:block;margin:13px 0 6px}.field{width:100%;padding:10px 11px;border:1px solid #d8d8d8;border-radius:8px;background:#fff;color:#171717;outline:none}.field:focus{border-color:#777}
@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.25.40</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.25.41</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -242,14 +242,55 @@ async function renderProducts(){
 async function renderKeywords(){
   const [k,p]=await Promise.all([api('/keywords'),api('/products')]);
   const rows=k.keywords.map(x=>'<tr><td><b>'+esc(x.keyword)+'</b></td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+(x.search_volume??'—')+'</td><td>'+(x.products.length?x.products.map(q=>'<span class="badge">'+esc(q.asin)+'</span>').join(' '):'<span class="empty">Not tracked</span>')+'</td></tr>').join('');
-  const productOpts=p.products.filter(x=>x.active).map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
+  const activeProducts=p.products.filter(x=>x.active);
+  const productOpts=activeProducts.map(x=>'<option value="'+esc(x.asin)+'">'+esc(x.asin+' · '+x.product_name)+'</option>').join('');
+  const bulkProductOpts='<option value="">Add to keyword library only</option>'+productOpts;
   const keywordOpts=k.keywords.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.keyword)+'</option>').join('');
-  $('main').innerHTML=pageHead('Keywords',marketTitle()+' · Build your keyword set and assign keywords to ASINs · Amazon Brand Analytics search volume refreshes automatically')+
-  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Keyword library</b><span class="muted">'+k.keywords.length+' keywords</span></div><div class="tablewrap"><table><thead><tr><th>Keyword</th><th>Priority</th><th>Search volume (optional)</th><th>Tracked ASINs</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
-  '<div><div class="panel"><div class="panelhead"><b>Add keyword</b></div><div class="panelbody"><form id="keywordForm"><label>Keyword</label><input class="field" name="keyword" required><div class="formgrid"><div><label>Priority</label><select class="field" name="priority"><option>critical</option><option>high</option><option selected>medium</option><option>low</option></select></div><div><label>Search volume (Amazon SQP / optional override)</label><input class="field" name="search_volume" type="number" min="0" placeholder="Leave blank to use Amazon SQP"></div></div><div class="actions"><button class="primary">Save keyword</button></div></form></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Start / update tracking</b></div><div class="panelbody"><form id="trackingForm"><label>Product</label><select class="field" name="asin" required>'+productOpts+'</select><label>Keyword</label><select class="field" name="keyword_id" required>'+keywordOpts+'</select><div class="formgrid"><div><label>Target rank</label><input class="field" name="organic_target_rank" value="4" type="number" min="1"></div><div><label>Warning from</label><input class="field" name="organic_warning_rank" value="5" type="number" min="2"></div><div><label>Critical from</label><input class="field" name="organic_critical_rank" value="8" type="number" min="3"></div><div><label>Sponsored target</label><input class="field" name="sponsored_target_rank" value="2" type="number" min="1"></div></div><div class="tiny" style="margin-top:8px">Saving the same ASIN + keyword updates its thresholds.</div><div class="actions"><button class="primary">Save tracking rule</button></div></form></div></div></div></div>';
-  $('keywordForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));try{await api('/keywords',{method:'POST',body:JSON.stringify(o)});toast('Keyword saved');renderKeywords()}catch(err){toast(err.message,true)}};
-  $('trackingForm').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));try{await api('/tracking',{method:'POST',body:JSON.stringify(o)});toast('Tracking rule saved');renderKeywords()}catch(err){toast(err.message,true)}};
+
+  $('main').innerHTML=pageHead('Keywords',marketTitle()+' · Bulk add keywords and assign them to ASINs · Amazon Brand Analytics search volume refreshes automatically')+
+  '<div class="grid2"><div class="panel"><div class="panelhead"><b>Keyword library</b><span class="muted">'+k.keywords.length+' keywords</span></div>'+
+  (rows?'<div class="tablewrap"><table><thead><tr><th>Keyword</th><th>Priority</th><th>Search volume</th><th>Tracked ASINs</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No keywords yet','Paste your keyword list in the bulk-add form.'))+
+  '</div>'+
+  '<div><div class="panel"><div class="panelhead"><b>Bulk add keywords</b><span class="badge blue">Up to 200</span></div><div class="panelbody"><form id="bulkKeywordForm">'+
+  '<label>Paste keywords</label><textarea class="field" name="keywords_text" rows="10" placeholder="One keyword per line\n\nbeeswax bread bag\nbread storage bag\nreusable bread bag\nsourdough bread bag" required></textarea>'+
+  '<div class="tiny" style="margin-top:6px">One per line is best. Commas and semicolons also work. Duplicates are automatically removed.</div>'+
+  '<div class="formgrid"><div><label>Priority for this batch</label><select class="field" name="priority"><option>critical</option><option>high</option><option selected>medium</option><option>low</option></select></div>'+
+  '<div><label>Optional: track all for product</label><select class="field" name="track_asin">'+bulkProductOpts+'</select></div></div>'+
+  '<div class="formgrid"><div><label>Organic target</label><input class="field" name="organic_target_rank" value="4" type="number" min="1"></div>'+
+  '<div><label>Warning from</label><input class="field" name="organic_warning_rank" value="5" type="number" min="2"></div>'+
+  '<div><label>Critical from</label><input class="field" name="organic_critical_rank" value="8" type="number" min="3"></div>'+
+  '<div><label>Sponsored target</label><input class="field" name="sponsored_target_rank" value="2" type="number" min="1"></div></div>'+
+  '<div class="tiny" style="margin-top:7px">Tracking thresholds are used only when you select a product above.</div>'+
+  '<div class="actions"><button class="primary">Add all keywords</button></div></form></div></div>'+
+  '<div class="panel"><div class="panelhead"><b>Start / update one tracking rule</b></div><div class="panelbody"><form id="trackingForm"><label>Product</label><select class="field" name="asin" required>'+productOpts+'</select><label>Keyword</label><select class="field" name="keyword_id" required>'+keywordOpts+'</select><div class="formgrid"><div><label>Target rank</label><input class="field" name="organic_target_rank" value="4" type="number" min="1"></div><div><label>Warning from</label><input class="field" name="organic_warning_rank" value="5" type="number" min="2"></div><div><label>Critical from</label><input class="field" name="organic_critical_rank" value="8" type="number" min="3"></div><div><label>Sponsored target</label><input class="field" name="sponsored_target_rank" value="2" type="number" min="1"></div></div><div class="tiny" style="margin-top:8px">Use this when you want different thresholds for one specific keyword.</div><div class="actions"><button class="primary">Save tracking rule</button></div></form></div></div></div></div>';
+
+  $('bulkKeywordForm').onsubmit=async e=>{
+    e.preventDefault();
+    const btn=e.target.querySelector('button[type="submit"]');
+    btn.disabled=true;btn.textContent='Adding keywords…';
+    const o=Object.fromEntries(new FormData(e.target));
+    try{
+      const r=await api('/keywords',{method:'POST',body:JSON.stringify(o)});
+      let msg=r.added+' added';
+      if(r.existing) msg+=', '+r.existing+' already existed';
+      if(r.tracked) msg+=', '+r.tracked+' tracking rules saved';
+      toast(msg);
+      renderKeywords();
+    }catch(err){
+      toast(err.message,true);
+      btn.disabled=false;btn.textContent='Add all keywords';
+    }
+  };
+
+  $('trackingForm').onsubmit=async e=>{
+    e.preventDefault();
+    const o=Object.fromEntries(new FormData(e.target));
+    try{
+      await api('/tracking',{method:'POST',body:JSON.stringify(o)});
+      toast('Tracking rule saved');
+      renderKeywords();
+    }catch(err){toast(err.message,true)}
+  };
 }
 
 async function renderCampaigns(){
