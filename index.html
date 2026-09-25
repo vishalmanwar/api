@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.24.33</span></div>
+    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.25.34</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -64,8 +64,9 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
 const num=n=>new Intl.NumberFormat('en-IN').format(Number(n||0));
 const pct=n=>n==null?'—':Number(n).toFixed(1)+'%';
-const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—';
-const dateTimeFmt=v=>v?new Date(v).toLocaleString('en-IN'):'—';
+const DISPLAY_TZ='Asia/Kolkata';
+const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric'}):'—';
+const dateTimeFmt=v=>v?(new Date(v).toLocaleString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})+' IST'):'—';
 function parseCsv(text){
   const rows=[];let row=[],field='',quoted=false;
   for(let i=0;i<text.length;i++){
@@ -164,7 +165,7 @@ async function renderDashboard(){
           ? '<span class="empty">Not found</span>'
           : '<span class="empty">No data</span>');
     const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank>=x.critical_rank?'Critical':'Warning'));
-    const lastChecked=x.latest_checked_at?new Date(x.latest_checked_at).toLocaleString():'—';
+    const lastChecked=dateTimeFmt(x.latest_checked_at);
     return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
   }).join('');
   const action=p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up free rank agent</button>';
@@ -342,7 +343,7 @@ async function renderSettings(){
       '<div class="tiny" style="margin-top:9px">Secrets are stored server-side and are never returned to the browser. Until Ads API approval is available, the Advertising page CSV importer remains fully usable.</div></div></div>';
 
   $('main').innerHTML=pageHead('Settings','Tracking, automation and notification configuration')+
-  '<div class="grid2"><div><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" inputmode="numeric" maxlength="6" value="'+esc(t.pincode||'')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times (IST)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+emailPanel+'</div>'+
+  '<div class="grid2"><div><div class="panel"><div class="panelhead"><b>Tracking settings</b></div><div class="panelbody"><form id="settingsForm"><label>Amazon India delivery pincode</label><input class="field" name="pincode" inputmode="numeric" maxlength="6" value="'+esc(t.pincode||'')+'" required><label>Device</label><select class="field" name="device"><option value="desktop" '+(t.device==='desktop'?'selected':'')+'>Desktop</option><option value="mobile" '+(t.device==='mobile'?'selected':'')+'>Mobile</option></select><label>Organic check times — IST (Asia/Kolkata)</label><input class="field" name="organic_schedule" value="'+esc((t.organic_schedule||['08:00','14:00','20:00']).join(', '))+'"><div class="tiny" style="margin:7px 0 10px">Timezone is locked to <b>Asia/Kolkata (IST)</b>. Your Texas/Windows timezone does not change these run times.</div><label>Sponsored check frequency (hours)</label><input class="field" type="number" min="1" name="sponsored_frequency_hours" value="'+esc(t.sponsored_frequency_hours||2)+'"><div class="actions"><button class="primary">Save settings</button></div></form></div></div>'+emailPanel+'</div>'+
   '<div>'+operaPanel+adsPanel+'<div class="note"><b>Pincode changes apply to every active tracking rule.</b> Reports and daily metrics keep old locations separate instead of mixing them with the new pincode.</div></div></div>';
 
   $('settingsForm').onsubmit=async e=>{
