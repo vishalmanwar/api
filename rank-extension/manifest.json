@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zipify Multi-Market Rank Agent",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Automated Amazon India and USA organic/sponsored rank tracking for Zipify.",
   "permissions": [
     "storage",
@@ -13,7 +13,8 @@
   ],
   "host_permissions": [
     "https://www.amazon.in/*",
-    "https://ywrtgkdkntjyeqdnrbop.supabase.co/*"
+    "https://ywrtgkdkntjyeqdnrbop.supabase.co/*",
+    "https://www.amazon.com/*"
   ],
   "background": {
     "service_worker": "background.js",
