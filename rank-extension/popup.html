@@ -8,7 +8,7 @@
 <body>
   <div class="wrap">
     <h1>Zipify Rank Agent</h1>
-    <p class="muted">Uses the pincode saved in Zipify Dashboard Settings and sets Amazon.in automatically before every rank check.</p>
+    <p class="muted">Uses the selected market settings from the Zipify Dashboard and automatically switches between Amazon India and Amazon USA, including the configured pincode or ZIP code.</p>
     <label>Agent token</label>
     <input id="token" type="password" placeholder="Paste agent token">
     <div class="row">
@@ -16,7 +16,7 @@
       <button id="run" class="primary">Run now</button>
     </div>
     <div id="status" class="status">Not configured.</div>
-    <div class="small">Keep Opera running. Queue polling and scheduled checks are automatic.</div>
+    <div class="small">Keep Opera running. India and USA queue polling, market switching, location setup, and scheduled checks are automatic.</div>
   </div>
   <script src="popup.js"></script>
 </body>
