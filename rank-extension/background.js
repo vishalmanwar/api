@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.24.23-opera-complete';
+const EXT_VERSION='2026.09.25.40-multi-market';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=1;
@@ -22,7 +22,11 @@ async function api(action,{method='GET',body=null,force=false}={}){
   const url=API+'?action='+encodeURIComponent(action)+(force?'&force=1':'');
   const r=await fetch(url,{
     method,
-    headers:{'Content-Type':'application/json','X-Rank-Agent':token,'X-Rank-Agent-Version':EXT_VERSION},
+    headers:{
+      'Content-Type':'application/json',
+      'X-Rank-Agent':token,
+      'X-Rank-Agent-Version':EXT_VERSION
+    },
     body:body==null?undefined:JSON.stringify(body)
   });
   const raw=await r.text();
@@ -41,7 +45,7 @@ async function waitTabComplete(tabId,timeout=60000){
       reject(new Error('Amazon tab timed out.'));
     },timeout);
     function done(id,info,tab){
-      if(id===tabId && info.status==='complete'){
+      if(id===tabId&&info.status==='complete'){
         clearTimeout(timer);
         chrome.tabs.onUpdated.removeListener(done);
         resolve(tab);
@@ -73,7 +77,7 @@ async function amazonSnapshot(tabId){
             !!el.querySelector('[aria-label*="Sponsored"],[data-component-type="sp-sponsored-result"],[class*="s-sponsored"]');
           return {asin,sponsored,absolute:index+1};
         }).filter(x=>x.asin);
-      return {title:document.title,url:window.location.href,bodyChars:body.length,location,cards};
+      return {title:document.title,url:location.href,bodyChars:body.length,location,cards};
     }
   });
   return res?.result||{};
@@ -84,9 +88,8 @@ async function cdp(tabId,method,params={}){
 }
 
 async function attachDebugger(tabId){
-  try{
-    await chrome.debugger.attach({tabId},'1.3');
-  }catch(e){
+  try{await chrome.debugger.attach({tabId},'1.3')}
+  catch(e){
     const msg=String(e?.message||e);
     if(!msg.includes('Another debugger is already attached')) throw e;
   }
@@ -103,7 +106,7 @@ async function findLocationButton(tabId){
     target:{tabId},
     func:()=>{
       const visible=el=>{
-        if(!el) return false;
+        if(!el)return false;
         const r=el.getBoundingClientRect();
         return r.width>0&&r.height>0;
       };
@@ -112,7 +115,7 @@ async function findLocationButton(tabId){
         document.querySelector('#glow-ingress-block'),
         document.querySelector('[data-csa-c-content-id="nav-global-location-popover-link"]')
       ].find(visible);
-      if(!el) return null;
+      if(!el)return null;
       const b=el.getBoundingClientRect();
       return {x:b.left+b.width/2,y:b.top+b.height/2};
     }
@@ -125,9 +128,8 @@ async function findLocationControls(tabId){
     target:{tabId},
     func:()=>{
       const visible=el=>{
-        if(!el) return false;
-        const r=el.getBoundingClientRect();
-        const s=getComputedStyle(el);
+        if(!el)return false;
+        const r=el.getBoundingClientRect(),s=getComputedStyle(el);
         return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';
       };
       const input=[
@@ -135,8 +137,10 @@ async function findLocationControls(tabId){
         document.querySelector('input[data-action="GLUXPostalInputAction"]'),
         document.querySelector('input[placeholder*="pincode" i]'),
         document.querySelector('input[placeholder*="postal" i]'),
+        document.querySelector('input[placeholder*="zip" i]'),
         document.querySelector('input[aria-label*="pincode" i]'),
         document.querySelector('input[aria-label*="postal" i]'),
+        document.querySelector('input[aria-label*="zip" i]'),
         ...document.querySelectorAll('.a-popover input[type="text"],.a-popover input:not([type]),[role="dialog"] input[type="text"]')
       ].find(visible);
 
@@ -145,11 +149,9 @@ async function findLocationControls(tabId){
       )].filter(visible);
       const apply=all.find(el=>/apply|update|use this|continue/i.test(
         (el.value||el.textContent||el.getAttribute('aria-label')||'').trim()
-      )) || all[0];
-
-      if(!input||!apply) return null;
-      const ir=input.getBoundingClientRect();
-      const ar=apply.getBoundingClientRect();
+      ))||all[0];
+      if(!input||!apply)return null;
+      const ir=input.getBoundingClientRect(),ar=apply.getBoundingClientRect();
       return {
         input:{x:ir.left+ir.width/2,y:ir.top+ir.height/2},
         apply:{x:ar.left+ar.width/2,y:ar.top+ar.height/2}
@@ -159,32 +161,46 @@ async function findLocationControls(tabId){
   return r?.result||null;
 }
 
-async function verifyPincode(tabId,pincode,timeout=12000){
+function domainOrigin(domain){
+  const d=String(domain||'www.amazon.in').replace(/^https?:\/\//i,'').replace(/\/.*$/,'');
+  return 'https://'+d;
+}
+
+function validLocation(locationType,value){
+  const v=String(value||'').trim();
+  if(locationType==='postal_code')return /^\d{5}(?:-\d{4})?$/.test(v);
+  return /^\d{6}$/.test(v);
+}
+
+async function verifyLocation(tabId,value,timeout=12000){
   const end=Date.now()+timeout;
   while(Date.now()<end){
     const snap=await amazonSnapshot(tabId).catch(()=>null);
-    if(String(snap?.location||'').includes(String(pincode))) return snap.location;
+    if(String(snap?.location||'').includes(String(value)))return snap.location;
     await sleep(500);
   }
   return null;
 }
 
-async function setPincode(tabId,pincode){
-  if(!/^\d{6}$/.test(String(pincode))) throw new Error('Invalid configured pincode: '+pincode);
+async function setAmazonLocation(tabId,{domain,locationType,locationValue,marketName}){
+  if(!validLocation(locationType,locationValue)){
+    throw new Error('Invalid '+(locationType==='postal_code'?'ZIP code':'pincode')+': '+locationValue);
+  }
 
-  await navigate(tabId,'https://www.amazon.in/');
-  let snap=await amazonSnapshot(tabId);
-  if((snap.bodyChars||0)<100) throw new Error('Amazon homepage did not load normally.');
-  if(String(snap.location||'').includes(String(pincode))) return snap.location;
+  const origin=domainOrigin(domain);
+  await navigate(tabId,origin+'/');
+  const snap=await amazonSnapshot(tabId);
+  if((snap.bodyChars||0)<100)throw new Error((marketName||'Amazon')+' homepage did not load normally.');
+  if(String(snap.location||'').includes(String(locationValue)))return snap.location;
 
   await attachDebugger(tabId);
   try{
     let button=null;
     for(let i=0;i<12&&!button;i++){
       button=await findLocationButton(tabId);
-      if(!button) await sleep(500);
+      if(!button)await sleep(500);
     }
-    if(!button) throw new Error('Amazon Update location control not found.');
+    if(!button)throw new Error('Amazon Update location control not found.');
 
     await realClick(tabId,button.x,button.y);
 
@@ -194,28 +210,27 @@ async function setPincode(tabId,pincode){
       ui=await findLocationControls(tabId);
       if(!ui&&(attempt===7||attempt===15)){
         const again=await findLocationButton(tabId);
-        if(again) await realClick(tabId,again.x,again.y);
+        if(again)await realClick(tabId,again.x,again.y);
       }
     }
-    if(!ui) throw new Error('Amazon location popup did not expose the pincode input.');
+    if(!ui)throw new Error('Amazon location popup did not expose the location input.');
 
     await realClick(tabId,ui.input.x,ui.input.y);
     await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
     await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',modifiers:2,key:'a',code:'KeyA',windowsVirtualKeyCode:65});
     await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
     await cdp(tabId,'Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
-    await cdp(tabId,'Input.insertText',{text:String(pincode)});
+    await cdp(tabId,'Input.insertText',{text:String(locationValue)});
     await sleep(400);
-
     await realClick(tabId,ui.apply.x,ui.apply.y);
 
-    let verified=await verifyPincode(tabId,pincode,10000);
+    let verified=await verifyLocation(tabId,locationValue,10000);
     if(!verified){
       const [confirm]=await chrome.scripting.executeScript({
         target:{tabId},
         func:()=>{
           const visible=el=>{
-            if(!el) return false;
+            if(!el)return false;
             const r=el.getBoundingClientRect();
             return r.width>0&&r.height>0;
           };
@@ -225,14 +240,14 @@ async function setPincode(tabId,pincode){
             document.querySelector('input[name="glowDoneButton"]'),
             ...document.querySelectorAll('.a-popover button,[role="dialog"] button')
           ].find(x=>visible(x)&&/done|continue/i.test((x.value||x.textContent||'').trim()));
-          if(!el) return null;
+          if(!el)return null;
           const r=el.getBoundingClientRect();
           return {x:r.left+r.width/2,y:r.top+r.height/2};
         }
       });
       if(confirm?.result){
         await realClick(tabId,confirm.result.x,confirm.result.y);
-        verified=await verifyPincode(tabId,pincode,5000);
+        verified=await verifyLocation(tabId,locationValue,5000);
       }
     }
 
@@ -240,12 +255,12 @@ async function setPincode(tabId,pincode){
       await chrome.tabs.reload(tabId);
       await waitTabComplete(tabId,60000);
       await sleep(1000);
-      verified=await verifyPincode(tabId,pincode,5000);
+      verified=await verifyLocation(tabId,locationValue,5000);
     }
 
     if(!verified){
       const now=await amazonSnapshot(tabId).catch(()=>({location:'unknown'}));
-      throw new Error('Automatic pincode setup failed. Wanted '+pincode+'; header: '+(now.location||'unknown'));
+      throw new Error('Automatic location setup failed. Wanted '+locationValue+'; header: '+(now.location||'unknown'));
     }
     return verified;
   }finally{
@@ -253,40 +268,40 @@ async function setPincode(tabId,pincode){
   }
 }
 
-async function getRankTab(){
+async function getRankTab(domain){
   const {rankTabId}=await chrome.storage.local.get('rankTabId');
   if(rankTabId){
     const t=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
-    if(t) return t;
+    if(t)return t;
   }
-  const t=await chrome.tabs.create({url:'https://www.amazon.in/',active:true});
+  const t=await chrome.tabs.create({url:domainOrigin(domain)+'/',active:true});
   await waitTabComplete(t.id,60000);
   await chrome.storage.local.set({rankTabId:t.id});
   return t;
 }
 
-async function scrapeKeyword(tabId,keyword,rules,pincode){
+async function scrapeKeyword(tabId,keyword,rules,context){
   let organicCounter=0,sponsoredCounter=0,absoluteCounter=0,sponsoredSeen=0;
   const found=new Map();
+  const origin=domainOrigin(context.domain);
 
   for(let pageNum=1;pageNum<=3;pageNum++){
-    await navigate(tabId,'https://www.amazon.in/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
+    await navigate(tabId,origin+'/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
     const snap=await amazonSnapshot(tabId);
 
     if((snap.bodyChars||0)<100||!Array.isArray(snap.cards)||!snap.cards.length){
       throw new Error('Amazon search did not return product cards.');
     }
-    if(!String(snap.location||'').includes(String(pincode))){
-      throw new Error('Amazon search page lost pincode '+pincode+'. Header: '+(snap.location||'unknown'));
+    if(!String(snap.location||'').includes(String(context.locationValue))){
+      throw new Error('Amazon search page lost '+context.locationValue+'. Header: '+(snap.location||'unknown'));
     }
 
     for(const card of snap.cards){
       absoluteCounter++;
-      if(card.sponsored){sponsoredCounter++;sponsoredSeen++;}
-      else organicCounter++;
+      if(card.sponsored){sponsoredCounter++;sponsoredSeen++}else organicCounter++;
 
       const target=rules.find(r=>String(r.asin).toUpperCase()===card.asin);
-      if(!target) continue;
+      if(!target)continue;
 
       const cur=found.get(card.asin)||{
         organic_rank:null,organic_page:null,organic_absolute_position:null,
@@ -312,14 +327,20 @@ async function scrapeKeyword(tabId,keyword,rules,pincode){
       const x=found.get(String(r.asin).toUpperCase());
       return x?.organic_rank!=null&&x?.sponsored_found===true;
     });
-    if(allComplete) break;
+    if(allComplete)break;
     await sleep(700);
   }
 
   return rules.map(rule=>{
     const x=found.get(String(rule.asin).toUpperCase())||{};
     return {
-      rule_id:rule.rule_id,asin:rule.asin,keyword:rule.keyword,pincode,device:rule.device,
+      rule_id:rule.rule_id,
+      market_key:context.marketKey,
+      asin:rule.asin,keyword:rule.keyword,
+      location_type:context.locationType,
+      location_value:context.locationValue,
+      pincode:context.locationValue,
+      device:rule.device,
       checked_at:new Date().toISOString(),status:'SUCCESS',
       organic_rank:x.organic_rank??null,organic_page:x.organic_page??null,
       organic_absolute_position:x.organic_absolute_position??null,
@@ -332,7 +353,7 @@ async function scrapeKeyword(tabId,keyword,rules,pincode){
 }
 
 async function releaseRequest(conf,reason){
-  if(!conf?.request_id) return;
+  if(!conf?.request_id)return;
   await api('local_worker_release',{
     method:'POST',
     body:{request_id:conf.request_id,reason:String(reason||'Worker setup failed.')}
@@ -340,16 +361,14 @@ async function releaseRequest(conf,reason){
 }
 
 async function runCheck(force=false){
-  if(running) return {ok:false,message:'Already running'};
+  if(running)return {ok:false,message:'Already running'};
   if(!force){
     const {retryAfter=0}=await chrome.storage.local.get('retryAfter');
-    if(Number(retryAfter)>Date.now()) return {ok:true,backoff:true};
+    if(Number(retryAfter)>Date.now())return {ok:true,backoff:true};
   }
 
   running=true;
-  let conf=null;
-  let rankTab=null;
-  let previousActive=null;
+  let conf=null,rankTab=null,previousActive=null;
 
   try{
     const [active]=await chrome.tabs.query({active:true,currentWindow:true});
@@ -359,55 +378,69 @@ async function runCheck(force=false){
     conf=await api('local_worker_config',{force});
 
     if(conf.mode==='skip'){
-      await setStatus('Idle — waiting for next scheduled check.',{lastPollAt:new Date().toISOString()});
+      await setStatus('Idle — waiting for next market schedule.',{
+        lastPollAt:new Date().toISOString()
+      });
       return {ok:true,skipped:true};
     }
-    if(!Array.isArray(conf.rules)||!conf.rules.length) throw new Error('No active tracking rules.');
-    if(!/^\d{6}$/.test(String(conf.default_pincode||''))) throw new Error('Backend returned an invalid pincode.');
 
-    rankTab=await getRankTab();
+    if(!Array.isArray(conf.rules)||!conf.rules.length)throw new Error('No active tracking rules for '+(conf.market_name||conf.market_key||'market')+'.');
+
+    const context={
+      marketKey:String(conf.market_key||'IN'),
+      marketName:String(conf.market_name||conf.market_key||'Amazon'),
+      domain:String(conf.domain||'www.amazon.in'),
+      locationType:String(conf.location_type||'pincode'),
+      locationValue:String(conf.location_value||conf.default_pincode||'')
+    };
+    if(!validLocation(context.locationType,context.locationValue)){
+      throw new Error(context.marketName+' location is not configured correctly.');
+    }
+
+    rankTab=await getRankTab(context.domain);
     await chrome.tabs.update(rankTab.id,{active:true});
 
-    const groups=new Map();
-    for(const rule of conf.rules){
-      const pin=String(rule.pincode||conf.default_pincode);
-      const key=pin+'|'+String(rule.device||conf.default_device||'desktop');
-      if(!groups.has(key)) groups.set(key,[]);
-      groups.get(key).push(rule);
-    }
+    await setStatus('Setting '+context.marketName+' '+context.locationValue+'…');
+    const location=await setAmazonLocation(rankTab.id,{
+      domain:context.domain,
+      locationType:context.locationType,
+      locationValue:context.locationValue,
+      marketName:context.marketName
+    });
+    await setStatus('Verified '+location+'. Checking '+context.marketName+' keywords…');
 
     const results=[];
-    for(const [key,rules] of groups){
-      const [pincode]=key.split('|');
-      await setStatus('Setting Amazon pincode '+pincode+'…');
-      const location=await setPincode(rankTab.id,pincode);
-      await setStatus('Verified '+location+'. Checking keywords…');
+    const byKeyword=new Map();
+    for(const r of conf.rules){
+      if(!byKeyword.has(r.keyword))byKeyword.set(r.keyword,[]);
+      byKeyword.get(r.keyword).push(r);
+    }
 
-      const byKeyword=new Map();
-      for(const r of rules){
-        if(!byKeyword.has(r.keyword)) byKeyword.set(r.keyword,[]);
-        byKeyword.get(r.keyword).push(r);
-      }
-
-      for(const [keyword,rr] of byKeyword){
-        try{
-          await setStatus('Checking '+keyword+'…');
-          results.push(...await scrapeKeyword(rankTab.id,keyword,rr,pincode));
-        }catch(e){
-          const msg=e?.message||String(e);
-          results.push(...rr.map(r=>({
-            rule_id:r.rule_id,asin:r.asin,keyword:r.keyword,pincode,device:r.device,
-            checked_at:new Date().toISOString(),status:'FAILED',error:msg
-          })));
-        }
+    for(const [keyword,rr] of byKeyword){
+      try{
+        await setStatus(context.marketName+': '+keyword+'…');
+        results.push(...await scrapeKeyword(rankTab.id,keyword,rr,context));
+      }catch(e){
+        const msg=e?.message||String(e);
+        results.push(...rr.map(r=>({
+          rule_id:r.rule_id,market_key:context.marketKey,
+          asin:r.asin,keyword:r.keyword,
+          location_type:context.locationType,
+          location_value:context.locationValue,
+          pincode:context.locationValue,
+          device:r.device,checked_at:new Date().toISOString(),
+          status:'FAILED',error:msg
+        })));
       }
     }
 
-    const runId='opera-extension-'+Date.now();
+    const runId='opera-'+context.marketKey.toLowerCase()+'-'+Date.now();
     const stored=await api('local_worker_ingest',{
       method:'POST',
       body:{
         run_id:runId,
+        market_key:context.marketKey,
+        location_value:context.locationValue,
         mode:conf.mode,
         request_id:conf.request_id||null,
         provider:'browser-extension',
@@ -418,7 +451,7 @@ async function runCheck(force=false){
 
     await chrome.storage.local.remove('retryAfter');
 
-    if(Array.isArray(stored.alerts) && stored.alerts.length){
+    if(Array.isArray(stored.alerts)&&stored.alerts.length){
       for(const a of stored.alerts.slice(0,5)){
         const isRecovery=String(a.severity||'')==='recovery';
         await chrome.notifications.create('zipify-rank-'+String(a.id||Date.now())+'-'+Math.random(),{
@@ -432,10 +465,12 @@ async function runCheck(force=false){
     }
 
     await setStatus(
-      stored.failed===0
-        ? 'Completed: '+stored.success+'/'+stored.total+' successful.'+(stored.alerts?.length?' '+stored.alerts.length+' alert update(s).':'')
-        : 'Completed with errors: '+stored.success+' successful, '+stored.failed+' failed.',
-      {lastRunAt:new Date().toISOString(),lastSuccess:stored.success,lastFailed:stored.failed,lastRunId:runId}
+      context.marketName+' completed: '+stored.success+'/'+stored.total+' successful.'+(stored.alerts?.length?' '+stored.alerts.length+' alert update(s).':''),
+      {
+        lastRunAt:new Date().toISOString(),
+        lastSuccess:stored.success,lastFailed:stored.failed,
+        lastRunId:runId,lastMarket:context.marketKey
+      }
     );
     return stored;
   }catch(e){
@@ -455,7 +490,7 @@ async function runCheck(force=false){
 async function ensureAlarm(){
   const a=await chrome.alarms.get(ALARM);
   if(!a||Number(a.periodInMinutes)!==POLL_MINUTES){
-    if(a) await chrome.alarms.clear(ALARM);
+    if(a)await chrome.alarms.clear(ALARM);
     await chrome.alarms.create(ALARM,{delayInMinutes:0.1,periodInMinutes:POLL_MINUTES});
   }
 }
@@ -463,14 +498,14 @@ async function ensureAlarm(){
 async function boot(){
   await ensureAlarm();
   const token=await getToken();
-  if(token) runCheck(false).catch(()=>{});
+  if(token)runCheck(false).catch(()=>{});
 }
 
 boot().catch(()=>{});
 chrome.runtime.onInstalled.addListener(()=>boot().catch(()=>{}));
 chrome.runtime.onStartup.addListener(()=>boot().catch(()=>{}));
 chrome.alarms.onAlarm.addListener(a=>{
-  if(a.name===ALARM) runCheck(false).catch(()=>{});
+  if(a.name===ALARM)runCheck(false).catch(()=>{});
 });
 
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
