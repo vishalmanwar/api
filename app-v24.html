@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India search visibility dashboard.<br><span class="tiny">Build 2026.09.25.34</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.25.40</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -41,6 +41,13 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="app" class="layout hidden">
   <aside>
     <div class="brand">Zipify Rank<br>Intelligence</div>
+    <div style="margin:0 4px 20px">
+      <div class="tiny" style="color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Market</div>
+      <select id="marketSelect" class="field" style="background:#1b1b1b;color:#fff;border-color:#333">
+        <option value="IN">India</option>
+        <option value="US">USA</option>
+      </select>
+    </div>
     <div class="nav" id="nav">
       <button data-view="dashboard">Dashboard</button>
       <button data-view="products">Products</button>
@@ -61,12 +68,40 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
-const num=n=>new Intl.NumberFormat('en-IN').format(Number(n||0));
+let selectedMarket=localStorage.getItem('zri_market')||'IN';
+let marketsLoaded=false;
+let marketCatalog={
+  IN:{market_key:'IN',market_name:'India',marketplace:'amazon.in',currency_code:'INR',timezone:'Asia/Kolkata',location_type:'pincode',location_value:'500001',ads_region:'FE'},
+  US:{market_key:'US',market_name:'USA',marketplace:'amazon.com',currency_code:'USD',timezone:'America/Chicago',location_type:'postal_code',location_value:'',ads_region:'NA'}
+};
+let currentMarket=marketCatalog[selectedMarket]||marketCatalog.IN;
+const money=n=>new Intl.NumberFormat(currentMarket.currency_code==='USD'?'en-US':'en-IN',{style:'currency',currency:currentMarket.currency_code||'INR',maximumFractionDigits:2}).format(Number(n||0));
+const num=n=>new Intl.NumberFormat(currentMarket.currency_code==='USD'?'en-US':'en-IN').format(Number(n||0));
 const pct=n=>n==null?'—':Number(n).toFixed(1)+'%';
-const DISPLAY_TZ='Asia/Kolkata';
-const dateFmt=v=>v?new Date(v).toLocaleDateString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric'}):'—';
-const dateTimeFmt=v=>v?(new Date(v).toLocaleString('en-IN',{timeZone:DISPLAY_TZ,day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})+' IST'):'—';
+const dateFmt=v=>v?new Date(v).toLocaleDateString('en-US',{timeZone:currentMarket.timezone||'UTC',day:'2-digit',month:'short',year:'numeric'}):'—';
+const dateTimeFmt=v=>v?new Date(v).toLocaleString('en-US',{timeZone:currentMarket.timezone||'UTC',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZoneName:'short'}):'—';
+const marketFlag=()=>currentMarket.market_key==='US'?'USA':'India';
+const marketTitle=()=>marketFlag();
+const locationLabelUi=()=>currentMarket.location_type==='postal_code'?'ZIP code':'pincode';
+function setCurrentMarket(key){
+  selectedMarket=String(key||'IN').toUpperCase();
+  currentMarket=marketCatalog[selectedMarket]||marketCatalog.IN;
+  localStorage.setItem('zri_market',selectedMarket);
+  if($('marketSelect')) $('marketSelect').value=selectedMarket;
+}
+async function ensureMarkets(){
+  if(marketsLoaded){setCurrentMarket(selectedMarket);return}
+  const d=await api('/markets');
+  for(const m of d.markets||[]) marketCatalog[m.market_key]=m;
+  marketsLoaded=true;
+  if(!marketCatalog[selectedMarket]) selectedMarket='IN';
+  setCurrentMarket(selectedMarket);
+  const s=$('marketSelect');
+  if(s){
+    s.innerHTML=Object.values(marketCatalog).filter(m=>m.enabled!==false).map(m=>'<option value="'+esc(m.market_key)+'">'+esc(m.market_name)+'</option>').join('');
+    s.value=selectedMarket;
+  }
+}
 function parseCsv(text){
   const rows=[];let row=[],field='',quoted=false;
   for(let i=0;i<text.length;i++){
@@ -136,6 +171,7 @@ function apiUrl(path){
   const params=new URLSearchParams(parts[1]||'');
   if(action==='products'&&seg[1]){action='product_update';params.set('id',seg[1])}
   params.set('action',action);
+  if(!params.has('market')) params.set('market',selectedMarket);
   return API+'?'+params.toString();
 }
 async function api(path,opts={}){
@@ -404,8 +440,13 @@ async function renderSettings(){
 const renderers={dashboard:renderDashboard,products:renderProducts,keywords:renderKeywords,campaigns:renderCampaigns,advertising:renderAdvertising,alerts:renderAlerts,reports:renderReports,settings:renderSettings};
 async function navigate(view){
   if(!renderers[view])view='dashboard';setNav(view);location.hash=view;$('main').innerHTML='<div class="loader">Loading…</div>';
-  try{await renderers[view]()}catch(err){if(err.message!=='Unauthorized'){$('main').innerHTML=pageHead('Something went wrong','The screen could not load')+'<div class="note">'+esc(err.message)+'</div>';toast(err.message,true)}}
+  try{await ensureMarkets();await renderers[view]()}catch(err){if(err.message!=='Unauthorized'){$('main').innerHTML=pageHead('Something went wrong','The screen could not load')+'<div class="note">'+esc(err.message)+'</div>';toast(err.message,true)}}
 }
+$('marketSelect').value=selectedMarket;
+$('marketSelect').onchange=e=>{
+  setCurrentMarket(e.target.value);
+  navigate(location.hash.slice(1)||'dashboard');
+};
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
 $('loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
