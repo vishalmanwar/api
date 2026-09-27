@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.48-private-opera';
+const EXT_VERSION='2026.09.27.49-continue-shopping';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -55,10 +55,51 @@ async function waitTabComplete(tabId,timeout=60000){
   });
 }
 
+async function dismissContinueShopping(tabId){
+  for(let attempt=0;attempt<8;attempt++){
+    const [res]=await chrome.scripting.executeScript({
+      target:{tabId},
+      func:()=>{
+        const body=(document.body?.innerText||'').replace(/\s+/g,' ').trim();
+        const challenge=/click the button below to continue shopping|continue shopping/i.test(body);
+        if(!challenge)return {challenge:false,clicked:false};
+
+        const visible=el=>{
+          if(!el)return false;
+          const r=el.getBoundingClientRect();
+          const s=getComputedStyle(el);
+          return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';
+        };
+        const candidates=[
+          ...document.querySelectorAll('button,input[type="submit"],input[type="button"],a')
+        ].filter(visible);
+        const button=candidates.find(el=>/continue shopping/i.test(
+          String(el.value||el.textContent||el.getAttribute('aria-label')||'').trim()
+        ));
+        if(!button)return {challenge:true,clicked:false};
+        button.click();
+        return {challenge:true,clicked:true};
+      }
+    }).catch(()=>[null]);
+
+    if(!res?.result?.challenge)return false;
+    if(res?.result?.clicked){
+      await sleep(1200);
+      await waitTabComplete(tabId,30000).catch(()=>{});
+      await sleep(800);
+      return true;
+    }
+    await sleep(500);
+  }
+  throw new Error('Amazon Continue shopping screen could not be dismissed automatically.');
+}
+
 async function navigate(tabId,url){
   await chrome.tabs.update(tabId,{url,active:true});
   await waitTabComplete(tabId,60000);
-  await sleep(1200);
+  await sleep(900);
+  await dismissContinueShopping(tabId);
+  await sleep(500);
 }
 
 async function amazonSnapshot(tabId){
