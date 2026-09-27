@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.45-clean-session';
+const EXT_VERSION='2026.09.27.46-incognito';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -313,14 +313,37 @@ async function setAmazonLocation(tabId,{domain,locationType,locationValue,market
 }
 
 async function getRankTab(domain){
-  const {rankTabId}=await chrome.storage.local.get('rankTabId');
+  const {rankTabId,rankWindowId}=await chrome.storage.local.get(['rankTabId','rankWindowId']);
+
   if(rankTabId){
     const t=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
-    if(t)return t;
+    if(t?.incognito)return t;
   }
-  const t=await chrome.tabs.create({url:domainOrigin(domain)+'/',active:true});
+
+  if(rankWindowId){
+    const w=await chrome.windows.get(Number(rankWindowId),{populate:true}).catch(()=>null);
+    const t=w?.tabs?.find(x=>x.incognito);
+    if(t?.id){
+      await chrome.storage.local.set({rankTabId:t.id,rankWindowId:w.id});
+      return t;
+    }
+  }
+
+  const allowed=await chrome.extension.isAllowedIncognitoAccess();
+  if(!allowed){
+    throw new Error('Enable "Allow in incognito" for Zipify Multi-Market Rank Agent in opera://extensions.');
+  }
+
+  const w=await chrome.windows.create({
+    url:domainOrigin(domain)+'/',
+    incognito:true,
+    focused:true,
+    type:'normal'
+  });
+  const t=(w.tabs||[])[0];
+  if(!t?.id)throw new Error('Could not create private Amazon rank window.');
   await waitTabComplete(t.id,60000);
-  await chrome.storage.local.set({rankTabId:t.id});
+  await chrome.storage.local.set({rankTabId:t.id,rankWindowId:w.id});
   return t;
 }
 
