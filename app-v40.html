@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.43</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.45</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -91,16 +91,33 @@ function setCurrentMarket(key){
 }
 async function ensureMarkets(){
   if(marketsLoaded){setCurrentMarket(selectedMarket);return}
-  const d=await api('/markets');
-  for(const m of d.markets||[]) marketCatalog[m.market_key]=m;
+
+  try{
+    const cached=JSON.parse(localStorage.getItem('zri_markets_cache')||'null');
+    if(cached?.markets&&Date.now()-Number(cached.saved_at||0)<6*60*60*1000){
+      for(const m of cached.markets) marketCatalog[m.market_key]=m;
+    }
+  }catch{}
+
   marketsLoaded=true;
   if(!marketCatalog[selectedMarket]) selectedMarket='IN';
   setCurrentMarket(selectedMarket);
-  const s=$('marketSelect');
-  if(s){
-    s.innerHTML=Object.values(marketCatalog).filter(m=>m.enabled!==false).map(m=>'<option value="'+esc(m.market_key)+'">'+esc(m.market_name)+'</option>').join('');
-    s.value=selectedMarket;
-  }
+
+  const renderSelect=()=>{
+    const s=$('marketSelect');
+    if(s){
+      s.innerHTML=Object.values(marketCatalog).filter(m=>m.enabled!==false).map(m=>'<option value="'+esc(m.market_key)+'">'+esc(m.market_name)+'</option>').join('');
+      s.value=selectedMarket;
+    }
+  };
+  renderSelect();
+
+  api('/markets').then(d=>{
+    for(const m of d.markets||[]) marketCatalog[m.market_key]=m;
+    try{localStorage.setItem('zri_markets_cache',JSON.stringify({saved_at:Date.now(),markets:d.markets||[]}))}catch{}
+    setCurrentMarket(selectedMarket);
+    renderSelect();
+  }).catch(()=>{});
 }
 function parseCsv(text){
   const rows=[];let row=[],field='',quoted=false;
@@ -388,11 +405,13 @@ async function renderReports(days=30){
 }
 
 async function renderSettings(){
-  const [d,p,a,n,ads]=await Promise.all([
-    api('/settings'),api('/provider_status'),api('/local_agent_status'),api('/notification_settings'),api('/ads_status')
+  const [d,a,n,ads]=await Promise.all([
+    api('/settings'),api('/local_agent_status'),api('/notification_settings'),api('/ads_status')
   ]);
   const t=d.settings.tracking||{};
   const agent=a.agent;
+  const agentFresh=!!(agent?.last_seen_at && (Date.now()-new Date(agent.last_seen_at).getTime()<10*60*1000));
+  const providerStatus=agentFresh?'Connected':'Waiting';
   const notify=n.notifications||{};
   const lastDigest=notify.last_digest||{};
   const ad=ads.integration||{};
@@ -407,7 +426,7 @@ async function renderSettings(){
     '<div class="metricline"><span>Agent</span><b>'+esc(agent?.name||'Opera Rank Extension')+'</b></div>'+
     '<div class="metricline"><span>Last seen</span><b>'+esc(agent?.last_seen_at?dateTimeFmt(agent.last_seen_at):'Not yet')+'</b></div>'+
     '<div class="metricline"><span>Current '+esc(locLabel)+'</span><b>'+esc(t.location_value||t.pincode||'—')+'</b></div>'+
-    '<div class="metricline"><span>Provider status</span><b>'+esc(p.status||'Waiting')+'</b></div>'+
+    '<div class="metricline"><span>Provider status</span><b>'+esc(providerStatus)+'</b></div>'+
     '<div class="actions"><button id="testRankNow" class="primary">Queue live rank check</button></div>'+
     '<div class="tiny" style="margin-top:10px">Opera polls automatically and switches to '+esc(currentMarket.marketplace)+' with the '+esc(locLabel)+' saved above. One extension handles both markets.</div></div></div>';
 
