@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.49-continue-shopping';
+const EXT_VERSION='2026.09.27.50-continue-shopping-real-click';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -56,13 +56,13 @@ async function waitTabComplete(tabId,timeout=60000){
 }
 
 async function dismissContinueShopping(tabId){
-  for(let attempt=0;attempt<8;attempt++){
+  const probe=async(click=false)=>{
     const [res]=await chrome.scripting.executeScript({
       target:{tabId},
-      func:()=>{
+      func:(shouldClick)=>{
         const body=(document.body?.innerText||'').replace(/\s+/g,' ').trim();
-        const challenge=/click the button below to continue shopping|continue shopping/i.test(body);
-        if(!challenge)return {challenge:false,clicked:false};
+        const challenge=/click the button below to continue shopping/i.test(body);
+        if(!challenge)return {challenge:false,found:false,clicked:false};
 
         const visible=el=>{
           if(!el)return false;
@@ -70,30 +70,63 @@ async function dismissContinueShopping(tabId){
           const s=getComputedStyle(el);
           return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';
         };
+        const label=el=>String(el?.value||el?.textContent||el?.getAttribute('aria-label')||'')
+          .replace(/\s+/g,' ').trim();
         const candidates=[
           ...document.querySelectorAll('button,input[type="submit"],input[type="button"],a')
         ].filter(visible);
-        const button=candidates.find(el=>/continue shopping/i.test(
-          String(el.value||el.textContent||el.getAttribute('aria-label')||'').trim()
-        ));
-        if(!button)return {challenge:true,clicked:false};
-        button.click();
-        return {challenge:true,clicked:true};
-      }
-    }).catch(()=>[null]);
+        const button=candidates.find(el=>/^continue shopping$/i.test(label(el)))
+          ||candidates.find(el=>/continue shopping/i.test(label(el)));
+        if(!button)return {challenge:true,found:false,clicked:false};
 
-    if(!res?.result?.challenge)return false;
-    if(res?.result?.clicked){
-      await sleep(1200);
+        const r=button.getBoundingClientRect();
+        if(shouldClick)button.click();
+        return {
+          challenge:true,found:true,clicked:!!shouldClick,
+          x:r.left+r.width/2,y:r.top+r.height/2
+        };
+      },
+      args:[click]
+    }).catch(()=>[null]);
+    return res?.result||{challenge:true,found:false,clicked:false};
+  };
+
+  for(let attempt=0;attempt<8;attempt++){
+    let state=await probe(true);
+    if(!state.challenge)return false;
+    if(!state.found){
+      await sleep(500);
+      continue;
+    }
+
+    // Normal DOM submit works on most Amazon interstitials.
+    await sleep(800);
+    let after=await probe(false);
+    if(!after.challenge){
       await waitTabComplete(tabId,30000).catch(()=>{});
-      await sleep(800);
+      await sleep(500);
       return true;
     }
-    await sleep(500);
+
+    // Fallback to a real browser mouse click if Amazon ignores a synthetic click.
+    try{
+      await attachDebugger(tabId);
+      const target=after.found?after:state;
+      await realClick(tabId,target.x,target.y);
+    }catch{}finally{
+      await chrome.debugger.detach({tabId}).catch(()=>{});
+    }
+
+    await sleep(900);
+    await waitTabComplete(tabId,30000).catch(()=>{});
+    after=await probe(false);
+    if(!after.challenge){
+      await sleep(500);
+      return true;
+    }
   }
   throw new Error('Amazon Continue shopping screen could not be dismissed automatically.');
 }
-
 async function navigate(tabId,url){
   await chrome.tabs.update(tabId,{url,active:true});
   await waitTabComplete(tabId,60000);
