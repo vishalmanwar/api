@@ -38,7 +38,9 @@ if($operaPath){
   $sc.WorkingDirectory=Split-Path $operaPath
   $sc.Save()
 
-  Start-Process $operaPath "--private opera://extensions/"
+  Start-Process $operaPath "opera://extensions/"
+  Start-Sleep -Seconds 1
+  Start-Process $operaPath "--private https://www.amazon.in/"
 }
 
 Write-Host ""
