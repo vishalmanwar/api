@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.44-fast';
+const EXT_VERSION='2026.09.27.45-clean-session';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -164,6 +164,50 @@ async function findLocationControls(tabId){
 function domainOrigin(domain){
   const d=String(domain||'www.amazon.in').replace(/^https?:\/\//i,'').replace(/\/.*$/,'');
   return 'https://'+d;
+}
+
+async function clearAmazonSession(domain){
+  const origin=domainOrigin(domain);
+  const host=new URL(origin).hostname;
+  const root=host.replace(/^www\./i,'');
+  const cookieDomains=[root,'.'+root,'www.'+root];
+
+  for(const d of cookieDomains){
+    const cookies=await chrome.cookies.getAll({domain:d}).catch(()=>[]);
+    for(const c of cookies){
+      const scheme=c.secure?'https://':'http://';
+      const cookieHost=String(c.domain||d).replace(/^\./,'');
+      const path=c.path||'/';
+      await chrome.cookies.remove({
+        url:scheme+cookieHost+path,
+        name:c.name,
+        storeId:c.storeId
+      }).catch(()=>{});
+    }
+  }
+
+  const tabs=await chrome.tabs.query({url:[
+    'https://*.'+root+'/*',
+    'http://*.'+root+'/*',
+    'https://'+root+'/*',
+    'http://'+root+'/*'
+  ]}).catch(()=>[]);
+
+  for(const t of tabs){
+    if(!t.id)continue;
+    await chrome.scripting.executeScript({
+      target:{tabId:t.id},
+      func:()=>{
+        try{localStorage.clear()}catch{}
+        try{sessionStorage.clear()}catch{}
+      }
+    }).catch(()=>{});
+  }
+
+  await chrome.storage.local.set({
+    lastAmazonSessionResetAt:new Date().toISOString(),
+    lastAmazonSessionResetDomain:root
+  });
 }
 
 function validLocation(locationType,value){
@@ -399,6 +443,10 @@ async function runCheck(force=false){
 
     rankTab=await getRankTab(context.domain);
     await chrome.tabs.update(rankTab.id,{active:true});
+
+    await setStatus('Resetting Amazon session for neutral rank check…');
+    await clearAmazonSession(context.domain);
+    await navigate(rankTab.id,domainOrigin(context.domain)+'/');
 
     await setStatus('Setting '+context.marketName+' '+context.locationValue+'…');
     const location=await setAmazonLocation(rankTab.id,{
