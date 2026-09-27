@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.46-incognito';
+const EXT_VERSION='2026.09.27.47-incognito-verified';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -342,9 +342,22 @@ async function getRankTab(domain){
   });
   const t=(w.tabs||[])[0];
   if(!t?.id)throw new Error('Could not create private Amazon rank window.');
+  if(!w.incognito || !t.incognito){
+    await chrome.windows.remove(w.id).catch(()=>{});
+    throw new Error('Opera created a normal window instead of a private window. Private-window automation is not available in this Opera setup.');
+  }
   await waitTabComplete(t.id,60000);
-  await chrome.storage.local.set({rankTabId:t.id,rankWindowId:w.id});
-  return t;
+  const verifiedTab=await chrome.tabs.get(t.id).catch(()=>null);
+  if(!verifiedTab?.incognito){
+    await chrome.windows.remove(w.id).catch(()=>{});
+    throw new Error('Opera did not confirm the Amazon tab as private/incognito.');
+  }
+  await chrome.storage.local.set({
+    rankTabId:t.id,
+    rankWindowId:w.id,
+    lastPrivateWindowVerifiedAt:new Date().toISOString()
+  });
+  return verifiedTab;
 }
 
 async function scrapeKeyword(tabId,keyword,rules,context){
