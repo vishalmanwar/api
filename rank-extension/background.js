@@ -1,7 +1,7 @@
-const EXT_VERSION='2026.09.25.40-multi-market';
+const EXT_VERSION='2026.09.27.44-fast';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
-const POLL_MINUTES=1;
+const POLL_MINUTES=2;
 const SETUP_RETRY_MS=120000;
 let running=false;
 
