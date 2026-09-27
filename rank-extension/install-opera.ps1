@@ -34,11 +34,11 @@ if($operaPath){
   $ws=New-Object -ComObject WScript.Shell
   $sc=$ws.CreateShortcut($shortcutPath)
   $sc.TargetPath=$operaPath
-  $sc.Arguments="--start-minimized"
+  $sc.Arguments="--private --start-minimized"
   $sc.WorkingDirectory=Split-Path $operaPath
   $sc.Save()
 
-  Start-Process $operaPath "opera://extensions/"
+  Start-Process $operaPath "--private opera://extensions/"
 }
 
 Write-Host ""
