@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.47-incognito-verified';
+const EXT_VERSION='2026.09.27.48-private-opera';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -327,6 +327,22 @@ async function getRankTab(domain){
       await chrome.storage.local.set({rankTabId:t.id,rankWindowId:w.id});
       return t;
     }
+  }
+
+  const root=new URL(domainOrigin(domain)).hostname.replace(/^www\./i,'');
+  const privateTabs=await chrome.tabs.query({}).catch(()=>[]);
+  const existing=privateTabs.find(t=>{
+    if(!t?.id||!t.incognito)return false;
+    try{
+      const h=new URL(t.url||'').hostname.replace(/^www\./i,'');
+      return h===root||h.endsWith('.'+root);
+    }catch{return false}
+  }) || privateTabs.find(t=>t?.id&&t.incognito);
+
+  if(existing?.id){
+    const w=existing.windowId?await chrome.windows.get(existing.windowId).catch(()=>null):null;
+    await chrome.storage.local.set({rankTabId:existing.id,rankWindowId:w?.id||existing.windowId||null});
+    return existing;
   }
 
   const allowed=await chrome.extension.isAllowedIncognitoAccess();
