@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.45</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.46</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -83,8 +83,12 @@ const dateTimeFmt=v=>v?new Date(v).toLocaleString('en-US',{timeZone:currentMarke
 const marketFlag=()=>currentMarket.market_key==='US'?'USA':'India';
 const marketTitle=()=>marketFlag();
 const locationLabelUi=()=>currentMarket.location_type==='postal_code'?'ZIP code':'pincode';
+function normalizeMarketKey(key){
+  const k=String(key||'').trim().toUpperCase();
+  return (k==='US'||k==='IN')?k:'IN';
+}
 function setCurrentMarket(key){
-  selectedMarket=String(key||'IN').toUpperCase();
+  selectedMarket=normalizeMarketKey(key);
   currentMarket=marketCatalog[selectedMarket]||marketCatalog.IN;
   localStorage.setItem('zri_market',selectedMarket);
   if($('marketSelect')) $('marketSelect').value=selectedMarket;
@@ -188,7 +192,8 @@ function apiUrl(path){
   const params=new URLSearchParams(parts[1]||'');
   if(action==='products'&&seg[1]){action='product_update';params.set('id',seg[1])}
   params.set('action',action);
-  if(!params.has('market')) params.set('market',selectedMarket);
+  const requestMarket=normalizeMarketKey(params.get('market')||selectedMarket||currentMarket?.market_key);
+  params.set('market',requestMarket);
   return API+'?'+params.toString();
 }
 async function api(path,opts={}){
@@ -242,7 +247,8 @@ async function renderDashboard(){
   if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
     const b=$('runRankCheck');b.disabled=true;b.textContent='Queueing check…';
     try{
-      await api('/rank_check_now',{method:'POST',body:'{}'});
+      const runMarket=normalizeMarketKey(currentMarket?.market_key||selectedMarket);
+      await api('/rank_check_now?market='+encodeURIComponent(runMarket),{method:'POST',body:JSON.stringify({market_key:runMarket})});
       toast('Rank check queued for '+currentMarket.market_name+'. Opera will use '+locationLabelUi()+' '+(p.location_value||p.pincode||'from Settings')+' automatically.');
       b.textContent='Queued';
       setTimeout(()=>renderDashboard(),4000);
