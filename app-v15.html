@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.25.42</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.43</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -192,8 +192,12 @@ function emptyState(title,text){return '<div class="empty-state"><b>'+esc(title)
 
 async function renderDashboard(){
   $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring')+'<div class="loader">Loading dashboard…</div>';
-  const [d,p]=await Promise.all([api('/dashboard'),api('/provider_status')]);
-  const rows=d.rows.map(x=>{
+  const d=await api('/dashboard');
+  const p=d.provider||{};
+  currentMarket=d.market||currentMarket;
+  marketCatalog[currentMarket.market_key]=currentMarket;
+  setCurrentMarket(currentMarket.market_key);
+  const rows=(d.rows||[]).map(x=>{
     const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
     const sponsored=x.sponsored_position!=null
       ? '#'+x.sponsored_position
