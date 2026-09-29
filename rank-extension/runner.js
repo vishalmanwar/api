@@ -838,6 +838,7 @@ async function runKeywordReliably(keyword,rules,context){
     if(!ev)return false;
     if(context.mode!=='full')return ev.valid.length>=1;
     if(ev.valid.some(x=>x.organic_found===true))return true;
+    if(context.reuseMarketSession)return ev.valid.some(x=>x.organic_found===false);
     return ev.valid.filter(x=>x.organic_found===false).length>=2;
   };
 
@@ -868,8 +869,10 @@ async function runKeywordReliably(keyword,rules,context){
         if(ev)ev.errors.push('Session '+attempt+': '+msg);
       }
     }finally{
-      if(session?.tab)await closeRankSession(session.tab);
-      else await closePreviousRankWindow().catch(()=>{});
+      if(!context.reuseMarketSession){
+        if(session?.tab)await closeRankSession(session.tab);
+        else await closePreviousRankWindow().catch(()=>{});
+      }
     }
   }
 
