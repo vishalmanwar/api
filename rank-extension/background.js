@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.28.51-reliability-v2';
+const EXT_VERSION='2026.09.28.52-clean-session';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -273,49 +273,58 @@ function domainOrigin(domain){
   return 'https://'+d;
 }
 
-async function clearAmazonSession(domain){
+async function clearAmazonSession(domain,tabId){
   const origin=domainOrigin(domain);
   const host=new URL(origin).hostname;
   const root=host.replace(/^www\./i,'');
-  const cookieDomains=[root,'.'+root,'www.'+root];
 
-  for(const d of cookieDomains){
-    const cookies=await chrome.cookies.getAll({domain:d}).catch(()=>[]);
-    for(const c of cookies){
-      const scheme=c.secure?'https://':'http://';
-      const cookieHost=String(c.domain||d).replace(/^\./,'');
-      const path=c.path||'/';
-      await chrome.cookies.remove({
-        url:scheme+cookieHost+path,
-        name:c.name,
-        storeId:c.storeId
-      }).catch(()=>{});
+  // Clear only Amazon data in the cookie store used by this private tab.
+  let privateStoreId=null;
+  const stores=await chrome.cookies.getAllCookieStores().catch(()=>[]);
+  for(const store of stores||[]){
+    if(Array.isArray(store.tabIds)&&store.tabIds.includes(Number(tabId))){
+      privateStoreId=store.id;
+      break;
     }
   }
 
-  const tabs=await chrome.tabs.query({url:[
-    'https://*.'+root+'/*',
-    'http://*.'+root+'/*',
-    'https://'+root+'/*',
-    'http://'+root+'/*'
-  ]}).catch(()=>[]);
-
-  for(const t of tabs){
-    if(!t.id)continue;
-    await chrome.scripting.executeScript({
-      target:{tabId:t.id},
-      func:()=>{
-        try{localStorage.clear()}catch{}
-        try{sessionStorage.clear()}catch{}
-      }
+  const cookieQuery=privateStoreId?{storeId:privateStoreId}:{};
+  const cookies=await chrome.cookies.getAll(cookieQuery).catch(()=>[]);
+  for(const c of cookies){
+    const d=String(c.domain||'').replace(/^\./,'').toLowerCase();
+    if(!(d===root || d.endsWith('.'+root)))continue;
+    const scheme=c.secure?'https://':'http://';
+    const cookieHost=String(c.domain||root).replace(/^\./,'');
+    await chrome.cookies.remove({
+      url:scheme+cookieHost+(c.path||'/'),
+      name:c.name,
+      storeId:c.storeId
     }).catch(()=>{});
+  }
+
+  // Clear HTTP cache plus all origin storage (local/session storage, IndexedDB,
+  // CacheStorage, service workers, etc.) before Amazon is opened for this run.
+  await attachDebugger(tabId);
+  try{
+    await cdp(tabId,'Network.enable').catch(()=>{});
+    await cdp(tabId,'Network.clearBrowserCache').catch(()=>{});
+    for(const o of ['https://'+root,'https://www.'+root]){
+      await cdp(tabId,'Storage.clearDataForOrigin',{
+        origin:o,
+        storageTypes:'all'
+      }).catch(()=>{});
+    }
+  }finally{
+    await chrome.debugger.detach({tabId}).catch(()=>{});
   }
 
   await chrome.storage.local.set({
     lastAmazonSessionResetAt:new Date().toISOString(),
-    lastAmazonSessionResetDomain:root
+    lastAmazonSessionResetDomain:root,
+    lastAmazonSessionResetStoreId:privateStoreId||null
   });
 }
+
 
 function validLocation(locationType,value){
   const v=String(value||'').trim();
@@ -419,69 +428,53 @@ async function setAmazonLocation(tabId,{domain,locationType,locationValue,market
   }
 }
 
-async function getRankTab(domain){
-  const {rankTabId,rankWindowId}=await chrome.storage.local.get(['rankTabId','rankWindowId']);
-
-  if(rankTabId){
-    const t=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
-    if(t?.incognito)return t;
-  }
-
+async function closePreviousRankWindow(){
+  const {rankWindowId}=await chrome.storage.local.get('rankWindowId');
   if(rankWindowId){
-    const w=await chrome.windows.get(Number(rankWindowId),{populate:true}).catch(()=>null);
-    const t=w?.tabs?.find(x=>x.incognito);
-    if(t?.id){
-      await chrome.storage.local.set({rankTabId:t.id,rankWindowId:w.id});
-      return t;
-    }
+    const w=await chrome.windows.get(Number(rankWindowId)).catch(()=>null);
+    if(w?.id)await chrome.windows.remove(w.id).catch(()=>{});
   }
+  await chrome.storage.local.remove(['rankTabId','rankWindowId']);
+}
 
-  const root=new URL(domainOrigin(domain)).hostname.replace(/^www\./i,'');
-  const privateTabs=await chrome.tabs.query({}).catch(()=>[]);
-  const existing=privateTabs.find(t=>{
-    if(!t?.id||!t.incognito)return false;
-    try{
-      const h=new URL(t.url||'').hostname.replace(/^www\./i,'');
-      return h===root||h.endsWith('.'+root);
-    }catch{return false}
-  }) || privateTabs.find(t=>t?.id&&t.incognito);
-
-  if(existing?.id){
-    const w=existing.windowId?await chrome.windows.get(existing.windowId).catch(()=>null):null;
-    await chrome.storage.local.set({rankTabId:existing.id,rankWindowId:w?.id||existing.windowId||null});
-    return existing;
-  }
-
+async function getRankTab(domain){
   const allowed=await chrome.extension.isAllowedIncognitoAccess();
   if(!allowed){
     throw new Error('Enable "Allow in incognito" for Zipify Multi-Market Rank Agent in opera://extensions.');
   }
 
+  // Never reuse an earlier rank-agent window. Each run starts from a new,
+  // disposable private browser window.
+  await closePreviousRankWindow();
+
   const w=await chrome.windows.create({
-    url:domainOrigin(domain)+'/',
+    url:'about:blank',
     incognito:true,
     focused:true,
     type:'normal'
   });
   const t=(w.tabs||[])[0];
-  if(!t?.id)throw new Error('Could not create private Amazon rank window.');
+  if(!t?.id)throw new Error('Could not create fresh private Amazon rank window.');
   if(!w.incognito || !t.incognito){
     await chrome.windows.remove(w.id).catch(()=>{});
-    throw new Error('Opera created a normal window instead of a private window. Private-window automation is not available in this Opera setup.');
+    throw new Error('Opera created a normal window instead of a private window.');
   }
-  await waitTabComplete(t.id,60000);
+
   const verifiedTab=await chrome.tabs.get(t.id).catch(()=>null);
   if(!verifiedTab?.incognito){
     await chrome.windows.remove(w.id).catch(()=>{});
-    throw new Error('Opera did not confirm the Amazon tab as private/incognito.');
+    throw new Error('Opera did not confirm the new rank window as private/incognito.');
   }
+
   await chrome.storage.local.set({
     rankTabId:t.id,
     rankWindowId:w.id,
-    lastPrivateWindowVerifiedAt:new Date().toISOString()
+    lastPrivateWindowVerifiedAt:new Date().toISOString(),
+    lastFreshRankWindowAt:new Date().toISOString()
   });
   return verifiedTab;
 }
+
 
 async function scrapeKeyword(tabId,keyword,rules,context){
   const origin=domainOrigin(context.domain);
@@ -687,11 +680,14 @@ async function runCheck(force=false){
       throw new Error(context.marketName+' location is not configured correctly.');
     }
 
+    await setStatus('Opening a fresh private rank window…');
     rankTab=await getRankTab(context.domain);
     await chrome.tabs.update(rankTab.id,{active:true});
 
-    await setStatus('Resetting Amazon session for neutral rank check…');
-    await clearAmazonSession(context.domain);
+    await setStatus('Clearing Amazon cookies, cache and site storage…');
+    await clearAmazonSession(context.domain,rankTab.id);
+
+    await setStatus('Opening a clean '+context.marketName+' session…');
     await navigate(rankTab.id,domainOrigin(context.domain)+'/');
 
     await setStatus('Setting '+context.marketName+' '+context.locationValue+'…');
@@ -776,7 +772,15 @@ async function runCheck(force=false){
     return {ok:false,error:msg};
   }finally{
     running=false;
-    if(previousActive?.id&&rankTab?.id&&previousActive.id!==rankTab.id){
+
+    // Rank windows are disposable by design. Closing the entire private
+    // window prevents the next run from inheriting Amazon session state.
+    if(rankTab?.windowId){
+      await chrome.windows.remove(rankTab.windowId).catch(()=>{});
+      await chrome.storage.local.remove(['rankTabId','rankWindowId']);
+    }
+
+    if(previousActive?.id){
       await chrome.tabs.update(previousActive.id,{active:true}).catch(()=>{});
     }
   }
