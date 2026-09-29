@@ -258,9 +258,11 @@ async function renderDashboard(){
   const missedJobs=Number(p.missed_jobs_24h||d.summary?.missed_jobs_24h||0);
   const providerNote=!locationReady
     ? '<div class="note"><span class="badge warn">Setup required</span> Set the '+esc(currentMarket.market_name)+' '+esc(locationLabelUi())+' in Settings before creating tracking rules or running checks.</div>'
-    : (p.connected
-      ? '<div class="note"><span class="badge good">Agent online</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b> · queued jobs <b>'+pendingJobs+'</b> · missed in last 24h <b>'+missedJobs+'</b>. Organic rank is updated only from verified measurements; sponsored absence means “not observed in that scan.”</div>'
-      : '<div class="note"><span class="badge warn">Agent offline</span> Opera has not checked in recently. <b>'+pendingJobs+'</b> job(s) are waiting and <b>'+missedJobs+'</b> scheduled slot(s) were missed in the last 24 hours. Jobs are no longer discarded just because the browser is unavailable.</div>');
+    : (p.update_required
+      ? '<div class="note"><span class="badge warn">Agent update required</span> Installed build <b>'+esc(p.agent_version||'unknown')+'</b>; required build <b>'+esc(p.required_agent_version||'2026.09.29.54-evidence-v3')+'</b>. Rank jobs are being held instead of running with the older reliability logic. Queued jobs: <b>'+pendingJobs+'</b>.</div>'
+      : p.connected
+        ? '<div class="note"><span class="badge good">Agent online</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b> · queued jobs <b>'+pendingJobs+'</b> · missed in last 24h <b>'+missedJobs+'</b>. Organic rank is updated only from verified measurements; sponsored absence means “not observed in that scan.”</div>'
+        : '<div class="note"><span class="badge warn">Agent offline</span> Opera has not checked in recently. <b>'+pendingJobs+'</b> job(s) are waiting and <b>'+missedJobs+'</b> scheduled slot(s) were missed in the last 24 hours. Jobs are no longer discarded just because the browser is unavailable.</div>');
   $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring',action)+
   '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div><div class="stat"><span>Queued Jobs</span><b>'+(d.summary.pending_jobs||0)+'</b></div><div class="stat"><span>Missed 24h</span><b>'+(d.summary.missed_jobs_24h||0)+'</b></div></div>'+
   '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Verified organic rank · latest sponsored observation</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Location</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Measurement time</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
@@ -453,7 +455,10 @@ async function renderSettings(){
   const t=d.settings.tracking||{};
   const agent=a.agent;
   const agentFresh=!!(agent?.last_seen_at && (Date.now()-new Date(agent.last_seen_at).getTime()<10*60*1000));
-  const providerStatus=agentFresh?'Connected':'Waiting';
+  const installedAgentVersion=String(agent?.machine_info?.version||'unknown');
+  const requiredAgentVersion='2026.09.29.54-evidence-v3';
+  const agentUpdateRequired=agentFresh && installedAgentVersion!==requiredAgentVersion;
+  const providerStatus=agentUpdateRequired?'Update required':(agentFresh?'Connected':'Waiting');
   const notify=n.notifications||{};
   const lastDigest=notify.last_digest||{};
   const ad=ads.integration||{};
@@ -467,6 +472,8 @@ async function renderSettings(){
     '<div class="panel"><div class="panelhead"><b>Opera Rank Agent</b><span class="badge '+(agent?.last_seen_at?'good':'warn')+'">'+(agent?.last_seen_at?'Connected':'Waiting')+'</span></div><div class="panelbody">'+
     '<div class="metricline"><span>Agent</span><b>'+esc(agent?.name||'Opera Rank Extension')+'</b></div>'+
     '<div class="metricline"><span>Last seen</span><b>'+esc(agent?.last_seen_at?dateTimeFmt(agent.last_seen_at):'Not yet')+'</b></div>'+
+    '<div class="metricline"><span>Agent build</span><b>'+esc(installedAgentVersion)+(agentUpdateRequired?' · update required':'')+'</b></div>'+
+    '<div class="metricline"><span>Required build</span><b>'+esc(requiredAgentVersion)+'</b></div>'+
     '<div class="metricline"><span>Current '+esc(locLabel)+'</span><b>'+esc(t.location_value||t.pincode||'—')+'</b></div>'+
     '<div class="metricline"><span>Provider status</span><b>'+esc(providerStatus)+'</b></div>'+
     '<div class="actions"><button id="testRankNow" class="primary">Queue live rank check</button></div>'+
