@@ -42,7 +42,8 @@ foreach ($file in $files) {
 }
 
 $manifest = Get-Content (Join-Path $dir "manifest.json") -Raw | ConvertFrom-Json
-$background = Get-Content (Join-Path $dir "background.js") -Raw`n$runner = Get-Content (Join-Path $dir "runner.js") -Raw
+$background = Get-Content (Join-Path $dir "background.js") -Raw
+$runner = Get-Content (Join-Path $dir "runner.js") -Raw
 if ($manifest.version -ne "1.7.0") {
   throw "Extension update verification failed. Expected manifest 1.7.0, got $($manifest.version)."
 }
