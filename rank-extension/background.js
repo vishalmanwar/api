@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.27.50-continue-shopping-real-click';
+const EXT_VERSION='2026.09.28.51-reliability-v2';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -143,15 +143,48 @@ async function amazonSnapshot(tabId){
       const line1=(document.querySelector('#glow-ingress-line1')?.textContent||'').trim();
       const line2=(document.querySelector('#glow-ingress-line2')?.textContent||'').trim();
       const location=(line1+' '+line2).replace(/\s+/g,' ').trim();
+
+      const hrefAsin=href=>{
+        const m=String(href||'').match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i);
+        return m?String(m[1]).toUpperCase():null;
+      };
+
       const cards=[...document.querySelectorAll('[data-component-type="s-search-result"][data-asin]')]
         .map((el,index)=>{
           const asin=(el.getAttribute('data-asin')||'').trim().toUpperCase();
+          const titleLink=
+            el.querySelector('h2 a[href*="/dp/"],h2 a[href*="/gp/product/"]') ||
+            el.querySelector('a.a-link-normal[href*="/dp/"]');
+          const titleAsin=hrefAsin(titleLink?.href||titleLink?.getAttribute('href')||'');
           const text=(el.textContent||'').replace(/\s+/g,' ').trim();
           const sponsored=/\bSponsored\b/i.test(text) ||
             !!el.querySelector('[aria-label*="Sponsored"],[data-component-type="sp-sponsored-result"],[class*="s-sponsored"]');
-          return {asin,sponsored,absolute:index+1};
-        }).filter(x=>x.asin);
-      return {title:document.title,url:location.href,bodyChars:body.length,location,cards};
+          const asins=[asin,titleAsin].filter(Boolean);
+          return {asin,titleAsin,asins:[...new Set(asins)],sponsored,absolute:index+1};
+        }).filter(x=>x.asins.length);
+
+      const u=new URL(location.href);
+      const searchTerm=(u.searchParams.get('k')||'').replace(/\+/g,' ').trim();
+      const low=body.toLowerCase();
+      const blocked=
+        /sorry, we just need to make sure you're not a robot/i.test(body) ||
+        /enter the characters you see below/i.test(body) ||
+        /type the characters you see in this image/i.test(body) ||
+        low.includes('automated access to amazon data');
+      const continueShopping=/click the button below to continue shopping/i.test(body);
+
+      return {
+        title:document.title,
+        url:location.href,
+        path:u.pathname,
+        hostname:u.hostname,
+        searchTerm,
+        bodyChars:body.length,
+        location,
+        cards,
+        blocked,
+        continueShopping
+      };
     }
   });
   return res?.result||{};
@@ -451,58 +484,126 @@ async function getRankTab(domain){
 }
 
 async function scrapeKeyword(tabId,keyword,rules,context){
-  let organicCounter=0,sponsoredCounter=0,absoluteCounter=0,sponsoredSeen=0;
-  const found=new Map();
   const origin=domainOrigin(context.domain);
+  const normalizedKeyword=String(keyword||'').trim().toLowerCase().replace(/\s+/g,' ');
 
-  for(let pageNum=1;pageNum<=3;pageNum++){
-    await navigate(tabId,origin+'/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
-    const snap=await amazonSnapshot(tabId);
+  const runPass=async(passRules)=>{
+    let organicCounter=0,sponsoredCounter=0,absoluteCounter=0,sponsoredSeen=0,pages=0;
+    const found=new Map();
 
-    if((snap.bodyChars||0)<100||!Array.isArray(snap.cards)||!snap.cards.length){
-      throw new Error('Amazon search did not return product cards.');
-    }
-    if(!String(snap.location||'').includes(String(context.locationValue))){
-      throw new Error('Amazon search page lost '+context.locationValue+'. Header: '+(snap.location||'unknown'));
-    }
+    for(let pageNum=1;pageNum<=3;pageNum++){
+      await navigate(tabId,origin+'/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
+      const snap=await amazonSnapshot(tabId);
+      pages++;
 
-    for(const card of snap.cards){
-      absoluteCounter++;
-      if(card.sponsored){sponsoredCounter++;sponsoredSeen++}else organicCounter++;
-
-      const target=rules.find(r=>String(r.asin).toUpperCase()===card.asin);
-      if(!target)continue;
-
-      const cur=found.get(card.asin)||{
-        organic_rank:null,organic_page:null,organic_absolute_position:null,
-        sponsored_found:false,sponsored_position:null,sponsored_page:null,
-        sponsored_absolute_position:null,total_sponsored_ads_before_organic:null
-      };
-
-      if(card.sponsored&&!cur.sponsored_found){
-        cur.sponsored_found=true;
-        cur.sponsored_position=sponsoredCounter;
-        cur.sponsored_page=pageNum;
-        cur.sponsored_absolute_position=absoluteCounter;
-      }else if(!card.sponsored&&cur.organic_rank===null){
-        cur.organic_rank=organicCounter;
-        cur.organic_page=pageNum;
-        cur.organic_absolute_position=absoluteCounter;
-        cur.total_sponsored_ads_before_organic=sponsoredSeen;
+      if(snap.continueShopping){
+        throw new Error('Amazon Continue shopping interstitial remained after navigation.');
       }
-      found.set(card.asin,cur);
+      if(snap.blocked){
+        throw new Error('Amazon blocked or challenged the automated search page.');
+      }
+      if((snap.bodyChars||0)<500 || !Array.isArray(snap.cards) || snap.cards.length<8){
+        throw new Error('Amazon search page was incomplete or invalid: only '+(snap.cards?.length||0)+' product cards.');
+      }
+      if(!String(snap.location||'').includes(String(context.locationValue))){
+        throw new Error('Amazon search page lost '+context.locationValue+'. Header: '+(snap.location||'unknown'));
+      }
+      const gotKeyword=String(snap.searchTerm||'').trim().toLowerCase().replace(/\s+/g,' ');
+      if(!String(snap.path||'').startsWith('/s') || (gotKeyword && gotKeyword!==normalizedKeyword)){
+        throw new Error('Amazon returned the wrong search page. Expected “'+keyword+'”, got “'+(snap.searchTerm||snap.url||'unknown')+'”.');
+      }
+
+      for(const card of snap.cards){
+        absoluteCounter++;
+        if(card.sponsored){sponsoredCounter++;sponsoredSeen++}else organicCounter++;
+
+        const matched=passRules.filter(r=>{
+          const target=String(r.asin||'').toUpperCase();
+          return Array.isArray(card.asins) && card.asins.includes(target);
+        });
+        if(!matched.length)continue;
+
+        for(const target of matched){
+          const key=String(target.asin).toUpperCase();
+          const cur=found.get(key)||{
+            organic_rank:null,organic_page:null,organic_absolute_position:null,
+            sponsored_found:false,sponsored_position:null,sponsored_page:null,
+            sponsored_absolute_position:null,total_sponsored_ads_before_organic:null
+          };
+
+          if(card.sponsored && !cur.sponsored_found){
+            cur.sponsored_found=true;
+            cur.sponsored_position=sponsoredCounter;
+            cur.sponsored_page=pageNum;
+            cur.sponsored_absolute_position=absoluteCounter;
+          }else if(!card.sponsored && cur.organic_rank===null){
+            cur.organic_rank=organicCounter;
+            cur.organic_page=pageNum;
+            cur.organic_absolute_position=absoluteCounter;
+            cur.total_sponsored_ads_before_organic=sponsoredSeen;
+          }
+          found.set(key,cur);
+        }
+      }
+
+      const allComplete=passRules.every(r=>{
+        const x=found.get(String(r.asin).toUpperCase());
+        return context.mode==='full'
+          ? x?.organic_rank!=null && x?.sponsored_found===true
+          : x?.sponsored_found===true;
+      });
+      if(allComplete)break;
+      await sleep(700);
     }
 
-    const allComplete=rules.every(r=>{
-      const x=found.get(String(r.asin).toUpperCase());
-      return x?.organic_rank!=null&&x?.sponsored_found===true;
-    });
-    if(allComplete)break;
-    await sleep(700);
+    return {found,totalScanned:absoluteCounter,pages};
+  };
+
+  const first=await runPass(rules);
+  let second=null;
+  const missingOrganic=context.mode==='full'
+    ? rules.filter(r=>first.found.get(String(r.asin).toUpperCase())?.organic_rank==null)
+    : [];
+
+  if(missingOrganic.length){
+    await sleep(1400);
+    second=await runPass(missingOrganic);
   }
 
   return rules.map(rule=>{
-    const x=found.get(String(rule.asin).toUpperCase())||{};
+    const key=String(rule.asin).toUpperCase();
+    const a=first.found.get(key)||{};
+    const b=second?.found?.get(key)||{};
+
+    const organicFirst=a.organic_rank!=null;
+    const organicSecond=b.organic_rank!=null;
+    const organicChecked=context.mode==='full';
+    const organicFound=organicChecked ? (organicFirst||organicSecond) : null;
+    const chosenOrganic=organicFirst?a:(organicSecond?b:{});
+
+    const sponsoredFound=!!(a.sponsored_found||b.sponsored_found);
+    const chosenSponsored=a.sponsored_found?a:(b.sponsored_found?b:{});
+
+    let scanState='valid_sponsored_only';
+    let confidence=75;
+    let verificationPasses=1;
+
+    if(organicChecked){
+      if(organicFirst){
+        scanState='valid_found';
+        confidence=95;
+        verificationPasses=1;
+      }else if(organicSecond){
+        scanState='valid_found_after_verify';
+        confidence=90;
+        verificationPasses=2;
+      }else{
+        scanState='valid_not_found_confirmed';
+        confidence=92;
+        verificationPasses=2;
+      }
+    }
+
     return {
       rule_id:rule.rule_id,
       market_key:context.marketKey,
@@ -511,22 +612,40 @@ async function scrapeKeyword(tabId,keyword,rules,context){
       location_value:context.locationValue,
       pincode:context.locationValue,
       device:rule.device,
-      checked_at:new Date().toISOString(),status:'SUCCESS',
-      organic_rank:x.organic_rank??null,organic_page:x.organic_page??null,
-      organic_absolute_position:x.organic_absolute_position??null,
-      sponsored_found:!!x.sponsored_found,sponsored_position:x.sponsored_position??null,
-      sponsored_page:x.sponsored_page??null,sponsored_absolute_position:x.sponsored_absolute_position??null,
-      total_sponsored_ads_before_organic:x.total_sponsored_ads_before_organic??null,
-      total_results_scanned:absoluteCounter
+      checked_at:new Date().toISOString(),
+      status:'SUCCESS',
+
+      organic_checked:organicChecked,
+      organic_found:organicFound,
+      organic_rank:organicFound?(chosenOrganic.organic_rank??null):null,
+      organic_page:organicFound?(chosenOrganic.organic_page??null):null,
+      organic_absolute_position:organicFound?(chosenOrganic.organic_absolute_position??null):null,
+      total_sponsored_ads_before_organic:organicFound?(chosenOrganic.total_sponsored_ads_before_organic??null):null,
+
+      sponsored_checked:true,
+      sponsored_found:sponsoredFound,
+      sponsored_position:sponsoredFound?(chosenSponsored.sponsored_position??null):null,
+      sponsored_page:sponsoredFound?(chosenSponsored.sponsored_page??null):null,
+      sponsored_absolute_position:sponsoredFound?(chosenSponsored.sponsored_absolute_position??null):null,
+
+      scan_state:scanState,
+      confidence_score:confidence,
+      verification_passes:verificationPasses,
+      page_count:first.pages+(second?.pages||0),
+      total_results_scanned:first.totalScanned+(second?.totalScanned||0)
     };
   });
 }
 
 async function releaseRequest(conf,reason){
-  if(!conf?.request_id)return;
+  if(!conf?.request_id&&!conf?.job_id)return;
   await api('local_worker_release',{
     method:'POST',
-    body:{request_id:conf.request_id,reason:String(reason||'Worker setup failed.')}
+    body:{
+      job_id:conf?.job_id||null,
+      request_id:conf?.request_id||null,
+      reason:String(reason||'Worker setup failed.')
+    }
   }).catch(()=>{});
 }
 
@@ -561,7 +680,8 @@ async function runCheck(force=false){
       marketName:String(conf.market_name||conf.market_key||'Amazon'),
       domain:String(conf.domain||'www.amazon.in'),
       locationType:String(conf.location_type||'pincode'),
-      locationValue:String(conf.location_value||conf.default_pincode||'')
+      locationValue:String(conf.location_value||conf.default_pincode||''),
+      mode:String(conf.mode||'full')
     };
     if(!validLocation(context.locationType,context.locationValue)){
       throw new Error(context.marketName+' location is not configured correctly.');
@@ -616,6 +736,7 @@ async function runCheck(force=false){
         market_key:context.marketKey,
         location_value:context.locationValue,
         mode:conf.mode,
+        job_id:conf.job_id||null,
         request_id:conf.request_id||null,
         provider:'browser-extension',
         provider_name:'Zipify Opera Rank Extension',
