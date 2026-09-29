@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.27.46</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.28.52</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -220,15 +220,35 @@ async function renderDashboard(){
   marketCatalog[currentMarket.market_key]=currentMarket;
   setCurrentMarket(currentMarket.market_key);
   const rows=(d.rows||[]).map(x=>{
-    const rank=x.organic_rank==null?'<span class="empty">No data</span>':'#'+x.organic_rank;
+    const organicState=String(x.organic_state||'unknown');
+    const sponsoredState=String(x.sponsored_state||'unknown');
+
+    const rank=x.organic_rank!=null
+      ? '#'+x.organic_rank
+      : organicState==='not_found_confirmed'
+        ? '<span class="badge bad">Verified absent</span>'
+        : '<span class="empty">No verified data</span>';
+
     const sponsored=x.sponsored_position!=null
       ? '#'+x.sponsored_position
-      : (x.latest_check_status==='SUCCESS' && x.sponsored_found===false
-          ? '<span class="empty">Not found</span>'
-          : '<span class="empty">No data</span>');
-    const status=x.organic_rank==null?'Awaiting data':(x.organic_rank<=x.target_rank?'On target':(x.organic_rank>=x.critical_rank?'Critical':'Warning'));
-    const lastChecked=dateTimeFmt(x.latest_checked_at);
-    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_pincode||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusBadge(status)+'</td><td><span class="tiny">'+esc(lastChecked)+'</span></td></tr>';
+      : sponsoredState==='not_observed'
+        ? '<span class="empty">Not observed</span>'
+        : '<span class="empty">No data</span>';
+
+    let statusHtml='<span class="badge">Awaiting verified data</span>';
+    if(organicState==='not_found_confirmed'){
+      statusHtml='<span class="badge bad">Verified absent</span>';
+    }else if(x.organic_rank!=null){
+      const status=x.organic_rank<=x.target_rank?'On target':(x.organic_rank>=x.critical_rank?'Critical':'Warning');
+      statusHtml=statusBadge(status);
+    }
+
+    const organicChecked=x.organic_checked_at?dateTimeFmt(x.organic_checked_at):'—';
+    const sponsoredChecked=x.sponsored_checked_at?dateTimeFmt(x.sponsored_checked_at):'—';
+    const confidence=x.organic_confidence==null?'':(' · '+x.organic_confidence+'% confidence');
+    const timing='<span class="tiny">Organic: '+esc(organicChecked)+esc(confidence)+'</span><br><span class="tiny">Sponsored: '+esc(sponsoredChecked)+'</span>';
+
+    return '<tr><td><b>'+esc(x.product_name)+'</b><div class="tiny">'+esc(x.asin)+'</div></td><td>'+esc(x.keyword)+'</td><td><span class="badge '+(x.priority==='critical'?'bad':x.priority==='high'?'warn':'')+'">'+esc(x.priority)+'</span></td><td>'+esc(x.location_value||p.pincode||'—')+'</td><td>'+(x.search_volume??'—')+'</td><td>'+rank+'</td><td>Top '+x.target_rank+'</td><td>'+sponsored+'</td><td>'+pct(x.sponsored_visibility)+'</td><td>'+statusHtml+'</td><td>'+timing+'</td></tr>';
   }).join('');
   const locationReady=String(currentMarket.location_value||'').trim()!=='';
   const action=!locationReady
@@ -241,7 +261,7 @@ async function renderDashboard(){
       : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>');
   $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring',action)+
   '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Daily median organic rank · latest sponsored position</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Location</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Last checked</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
+  '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Verified organic rank · latest sponsored observation</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Location</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Measurement time</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
   if($('configureMarket')) $('configureMarket').onclick=()=>navigate('settings');
   if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
   if($('runRankCheck')) $('runRankCheck').onclick=async()=>{
