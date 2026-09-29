@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Zipify Multi-Market Rank Agent",
-  "version": "1.7.0",
-  "description": "Persistent-tab Amazon rank runner with renewable leases, clean private sessions, and evidence-backed rank validation.",
+  "version": "1.7.2",
+  "description": "Single-leader persistent Amazon rank runner with safe stale-window handling and evidence-backed validation.",
   "permissions": [
     "storage",
     "alarms",
