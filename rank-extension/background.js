@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.54-evidence-v3';
+const EXT_VERSION='2026.09.29.55-navigation-v3';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -36,23 +36,49 @@ async function api(action,{method='GET',body=null,force=false}={}){
   return data;
 }
 
-async function waitTabComplete(tabId,timeout=60000){
-  const cur=await chrome.tabs.get(tabId).catch(()=>null);
-  if(cur?.status==='complete') return cur;
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{
-      chrome.tabs.onUpdated.removeListener(done);
-      reject(new Error('Amazon tab timed out.'));
-    },timeout);
-    function done(id,info,tab){
-      if(id===tabId&&info.status==='complete'){
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(done);
-        resolve(tab);
+async function documentProbe(tabId){
+  const [res]=await chrome.scripting.executeScript({
+    target:{tabId},
+    func:()=>({
+      url:location.href,
+      readyState:document.readyState,
+      timeOrigin:Number(performance.timeOrigin||0)
+    })
+  }).catch(()=>[null]);
+  return res?.result||null;
+}
+
+async function waitTabComplete(tabId,timeout=60000,options={}){
+  const expectedUrl=String(options.expectedUrl||'');
+  const previousTimeOrigin=Number(options.previousTimeOrigin||0);
+  const startedAt=Date.now();
+  let expected=null;
+  try{ if(expectedUrl) expected=new URL(expectedUrl); }catch{}
+
+  while(Date.now()-startedAt<timeout){
+    const tab=await chrome.tabs.get(tabId).catch(()=>null);
+    const probe=await documentProbe(tabId).catch(()=>null);
+
+    if(tab && probe && probe.readyState==='complete'){
+      let urlOk=true;
+      if(expected){
+        try{
+          const got=new URL(probe.url||tab.url||'');
+          const expectedRoot=expected.hostname.replace(/^www\./i,'').toLowerCase();
+          const gotRoot=got.hostname.replace(/^www\./i,'').toLowerCase();
+          urlOk=gotRoot===expectedRoot;
+          if(urlOk && expected.pathname.startsWith('/s')){
+            urlOk=got.pathname.startsWith('/s');
+          }
+        }catch{urlOk=false}
       }
+
+      const changed=!previousTimeOrigin || Number(probe.timeOrigin||0)!==previousTimeOrigin;
+      if(urlOk && changed)return tab;
     }
-    chrome.tabs.onUpdated.addListener(done);
-  });
+    await sleep(200);
+  }
+  throw new Error('Amazon navigation timed out before a fresh document finished loading.');
 }
 
 async function dismissContinueShopping(tabId){
@@ -128,11 +154,20 @@ async function dismissContinueShopping(tabId){
   throw new Error('Amazon Continue shopping screen could not be dismissed automatically.');
 }
 async function navigate(tabId,url){
+  const before=await documentProbe(tabId).catch(()=>null);
   await chrome.tabs.update(tabId,{url,active:true});
-  await waitTabComplete(tabId,60000);
-  await sleep(900);
+  await waitTabComplete(tabId,60000,{
+    expectedUrl:url,
+    previousTimeOrigin:Number(before?.timeOrigin||0)
+  });
+  await sleep(700);
   await dismissContinueShopping(tabId);
-  await sleep(500);
+  await sleep(400);
+
+  const after=await documentProbe(tabId).catch(()=>null);
+  if(!after || after.readyState!=='complete'){
+    throw new Error('Amazon navigation completed without a stable document.');
+  }
 }
 
 async function amazonSnapshot(tabId){
@@ -369,7 +404,21 @@ async function setAmazonLocation(tabId,{domain,locationType,locationValue,market
   const origin=domainOrigin(domain);
   await navigate(tabId,origin+'/');
   const snap=await amazonSnapshot(tabId);
-  if((snap.bodyChars||0)<100)throw new Error((marketName||'Amazon')+' homepage did not load normally.');
+  const expectedRoot=new URL(origin).hostname.replace(/^www\./i,'').toLowerCase();
+  const gotRoot=String(snap.hostname||'').replace(/^www\./i,'').toLowerCase();
+
+  if(gotRoot!==expectedRoot){
+    throw new Error((marketName||'Amazon')+' opened the wrong domain: '+(snap.hostname||snap.url||'unknown'));
+  }
+  if(snap.continueShopping){
+    throw new Error((marketName||'Amazon')+' Continue shopping interstitial remained after bootstrap.');
+  }
+  if(snap.blocked){
+    throw new Error((marketName||'Amazon')+' verification/challenge page blocked bootstrap.');
+  }
+  if(snap.readyState!=='complete'){
+    throw new Error((marketName||'Amazon')+' homepage document was not complete.');
+  }
   if(String(snap.location||'').includes(String(locationValue)))return snap.location;
 
   await attachDebugger(tabId);
@@ -678,8 +727,7 @@ async function openCleanRankSession(context){
   await setStatus('Clearing Amazon cookies, cache and site storage…');
   await clearAmazonSession(context.domain,tab.id);
 
-  await setStatus('Opening a clean '+context.marketName+' session…');
-  await navigate(tab.id,domainOrigin(context.domain)+'/');
+  await setStatus('Opening a clean '+context.marketName+' session and setting location…');
 
   const location=await setAmazonLocation(tab.id,{
     domain:context.domain,
