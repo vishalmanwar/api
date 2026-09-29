@@ -32,7 +32,7 @@ if ($remaining) {
   Start-Sleep -Seconds 2
 }
 
-$base = "https://raw.githubusercontent.com/vishalmanwar/api/master/rank-extension"
+$base = "https://raw.githubusercontent.com/vishalmanwar/api/2bc78bb5f86a9088fdb5d1ae93debcd0d8d0fcad/rank-extension"
 $files = @("manifest.json","popup.html","popup.css","popup.js","background.js")
 foreach ($file in $files) {
   $dest = Join-Path $dir $file
@@ -47,7 +47,7 @@ if ($manifest.version -ne "1.6.2") {
   throw "Extension update verification failed. Expected manifest 1.6.2, got $($manifest.version)."
 }
 if ($background -notmatch "2026\.09\.29\.56-snapshot-v4") {
-  throw "Extension update verification failed. Evidence-v3 background build was not downloaded."
+  throw "Extension update verification failed. Snapshot-v4 background build was not downloaded."
 }
 
 # A normal Opera restart is enough. The rank agent itself creates and destroys
