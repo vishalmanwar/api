@@ -822,13 +822,15 @@ async function preflightMarket(context){
     }
     return true;
   }finally{
-    if(session?.tab)await closeRankSession(session.tab);
-    else await closePreviousRankWindow().catch(()=>{});
+    if(!context.reuseMarketSession){
+      if(session?.tab)await closeRankSession(session.tab);
+      else await closePreviousRankWindow().catch(()=>{});
+    }
   }
 }
 
 async function runKeywordReliably(keyword,rules,context){
-  const maxAttempts=context.mode==='full'?3:2;
+  const maxAttempts=context.reuseMarketSession?2:(context.mode==='full'?3:2);
   const evidence=new Map(rules.map(r=>[Number(r.rule_id),{valid:[],errors:[]}]));
 
   const resolved=rule=>{
@@ -920,7 +922,7 @@ async function runKeywordReliably(keyword,rules,context){
       };
     }
 
-    if(notFoundObs.length>=2 && sessionIds.length>=2){
+    if(!context.reuseMarketSession && notFoundObs.length>=2 && sessionIds.length>=2){
       return {
         ...latest,
         status:'SUCCESS',
