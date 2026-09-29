@@ -1,13 +1,22 @@
 const RUNNER_FILE='runner.html';
-const RUNNER_VERSION='2026.09.29.58-leader-v1';
+const RUNNER_VERSION='2026.09.29.59-safe-window-v1';
 const WATCHDOG_ALARM='zipify-runner-watchdog';
 
 async function ensureRunner(){
-  const runnerUrl=chrome.runtime.getURL(RUNNER_FILE);
-  const tabs=await chrome.tabs.query({});
-  const runners=tabs.filter(t=>String(t.url||'').split('#')[0]===runnerUrl);
+  const baseUrl=chrome.runtime.getURL(RUNNER_FILE);
+  const runnerUrl=baseUrl+'?v='+encodeURIComponent(RUNNER_VERSION);
+  const base=new URL(baseUrl);
 
-  let tab=runners[0]||null;
+  const tabs=await chrome.tabs.query({});
+  const runners=tabs.filter(t=>{
+    try{
+      const u=new URL(String(t.url||''));
+      return u.origin===base.origin && u.pathname===base.pathname;
+    }catch{return false}
+  });
+
+  let tab=runners.find(t=>String(t.url||'')===runnerUrl)||null;
+
   if(!tab){
     tab=await chrome.tabs.create({url:runnerUrl,active:true,pinned:true});
   }
@@ -54,7 +63,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     return true;
   }
   if(msg?.type==='ensureAlarm'){
-    boot().then(()=>sendResponse({ok:true,version:'2026.09.29.57-runner-v1'}))
+    boot().then(()=>sendResponse({ok:true,version:'2026.09.29.59-safe-window-v1'}))
       .catch(e=>sendResponse({ok:false,error:e?.message||String(e)}));
     return true;
   }
