@@ -43,10 +43,10 @@ foreach ($file in $files) {
 
 $manifest = Get-Content (Join-Path $dir "manifest.json") -Raw | ConvertFrom-Json
 $background = Get-Content (Join-Path $dir "background.js") -Raw
-if ($manifest.version -ne "1.6.0") {
-  throw "Extension update verification failed. Expected manifest 1.6.0, got $($manifest.version)."
+if ($manifest.version -ne "1.6.1") {
+  throw "Extension update verification failed. Expected manifest 1.6.1, got $($manifest.version)."
 }
-if ($background -notmatch "2026\.09\.29\.54-evidence-v3") {
+if ($background -notmatch "2026\.09\.29\.55-navigation-v3") {
   throw "Extension update verification failed. Evidence-v3 background build was not downloaded."
 }
 
@@ -57,7 +57,7 @@ Start-Process $operaPath
 
 Write-Host ""
 Write-Host "Zipify Opera Rank Agent updated and Opera restarted."
-Write-Host "Installed manifest: 1.6.0"
-Write-Host "Installed agent build: 2026.09.29.54-evidence-v3"
+Write-Host "Installed manifest: 1.6.1"
+Write-Host "Installed agent build: 2026.09.29.55-navigation-v3"
 Write-Host "No extension Reload click is needed for the existing unpacked installation."
 Write-Host ""
