@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.28.53-independent-verify';
+const EXT_VERSION='2026.09.29.54-evidence-v3';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -173,17 +173,33 @@ async function amazonSnapshot(tabId){
         low.includes('automated access to amazon data');
       const continueShopping=/click the button below to continue shopping/i.test(body);
 
+      const uniqueAsinCount=new Set(cards.flatMap(c=>c.asins||[])).size;
+      const pageParam=u.searchParams.get('page');
+      const timeOrigin=Number(performance.timeOrigin||0);
+      const snapshotAt=Date.now();
+      const pageSignature=[
+        u.hostname,u.pathname,searchTerm,pageParam||'1',
+        String(timeOrigin),
+        cards.slice(0,8).map(c=>(c.asins||[]).join(':')+(c.sponsored?'S':'O')).join('|')
+      ].join('::');
+
       return {
         title:document.title,
         url:location.href,
         path:u.pathname,
         hostname:u.hostname,
         searchTerm,
+        pageParam,
         bodyChars:body.length,
         location,
         cards,
+        uniqueAsinCount,
         blocked,
-        continueShopping
+        continueShopping,
+        readyState:document.readyState,
+        timeOrigin,
+        snapshotAt,
+        pageSignature
       };
     }
   });
@@ -479,126 +495,129 @@ async function getRankTab(domain){
 }
 
 
-async function scrapeKeyword(tabId,keyword,rules,context){
+async function scrapeKeyword(tabId,keyword,rules,context,sessionMeta={}){
   const origin=domainOrigin(context.domain);
   const normalizedKeyword=String(keyword||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const expectedRoot=new URL(origin).hostname.replace(/^www\./i,'').toLowerCase();
+  const maxPages=Math.max(1,Math.min(10,Number(context.maxPages||5)));
+  const sessionId=String(sessionMeta.sessionId||crypto.randomUUID());
+  const startedAt=String(sessionMeta.startedAt||new Date().toISOString());
 
-  const runPass=async(passRules)=>{
-    let organicCounter=0,sponsoredCounter=0,absoluteCounter=0,sponsoredSeen=0,pages=0;
-    const found=new Map();
+  let organicCounter=0,sponsoredCounter=0,absoluteCounter=0,sponsoredSeen=0,pages=0;
+  let previousTimeOrigin=null;
+  const pageSignatures=new Set();
+  const found=new Map();
 
-    for(let pageNum=1;pageNum<=3;pageNum++){
-      await navigate(tabId,origin+'/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:''));
-      const snap=await amazonSnapshot(tabId);
-      pages++;
+  for(let pageNum=1;pageNum<=maxPages;pageNum++){
+    const url=origin+'/s?k='+encodeURIComponent(keyword)+(pageNum>1?'&page='+pageNum:'');
+    const navigationStartedAt=Date.now();
+    await navigate(tabId,url);
+    const snap=await amazonSnapshot(tabId);
+    pages++;
 
-      if(snap.continueShopping){
-        throw new Error('Amazon Continue shopping interstitial remained after navigation.');
-      }
-      if(snap.blocked){
-        throw new Error('Amazon blocked or challenged the automated search page.');
-      }
-      if((snap.bodyChars||0)<500 || !Array.isArray(snap.cards) || snap.cards.length<8){
-        throw new Error('Amazon search page was incomplete or invalid: only '+(snap.cards?.length||0)+' product cards.');
-      }
-      if(!String(snap.location||'').includes(String(context.locationValue))){
-        throw new Error('Amazon search page lost '+context.locationValue+'. Header: '+(snap.location||'unknown'));
-      }
-      const gotKeyword=String(snap.searchTerm||'').trim().toLowerCase().replace(/\s+/g,' ');
-      if(!String(snap.path||'').startsWith('/s') || (gotKeyword && gotKeyword!==normalizedKeyword)){
-        throw new Error('Amazon returned the wrong search page. Expected “'+keyword+'”, got “'+(snap.searchTerm||snap.url||'unknown')+'”.');
-      }
-
-      for(const card of snap.cards){
-        absoluteCounter++;
-        if(card.sponsored){sponsoredCounter++;sponsoredSeen++}else organicCounter++;
-
-        const matched=passRules.filter(r=>{
-          const target=String(r.asin||'').toUpperCase();
-          return Array.isArray(card.asins) && card.asins.includes(target);
-        });
-        if(!matched.length)continue;
-
-        for(const target of matched){
-          const key=String(target.asin).toUpperCase();
-          const cur=found.get(key)||{
-            organic_rank:null,organic_page:null,organic_absolute_position:null,
-            sponsored_found:false,sponsored_position:null,sponsored_page:null,
-            sponsored_absolute_position:null,total_sponsored_ads_before_organic:null
-          };
-
-          if(card.sponsored && !cur.sponsored_found){
-            cur.sponsored_found=true;
-            cur.sponsored_position=sponsoredCounter;
-            cur.sponsored_page=pageNum;
-            cur.sponsored_absolute_position=absoluteCounter;
-          }else if(!card.sponsored && cur.organic_rank===null){
-            cur.organic_rank=organicCounter;
-            cur.organic_page=pageNum;
-            cur.organic_absolute_position=absoluteCounter;
-            cur.total_sponsored_ads_before_organic=sponsoredSeen;
-          }
-          found.set(key,cur);
-        }
-      }
-
-      const allComplete=passRules.every(r=>{
-        const x=found.get(String(r.asin).toUpperCase());
-        return context.mode==='full'
-          ? x?.organic_rank!=null && x?.sponsored_found===true
-          : x?.sponsored_found===true;
-      });
-      if(allComplete)break;
-      await sleep(700);
+    if(snap.continueShopping){
+      throw new Error('Amazon Continue shopping interstitial remained after navigation.');
+    }
+    if(snap.blocked){
+      throw new Error('Amazon blocked or challenged the automated search page.');
     }
 
-    return {found,totalScanned:absoluteCounter,pages};
-  };
+    const gotRoot=String(snap.hostname||'').replace(/^www\./i,'').toLowerCase();
+    if(gotRoot!==expectedRoot){
+      throw new Error('Amazon market/domain changed. Expected '+expectedRoot+', got '+(snap.hostname||'unknown')+'.');
+    }
 
-  const first=await runPass(rules);
-  let second=null;
-  const missingOrganic=context.mode==='full'
-    ? rules.filter(r=>first.found.get(String(r.asin).toUpperCase())?.organic_rank==null)
-    : [];
+    if(snap.readyState!=='complete'){
+      throw new Error('Amazon search page was not fully loaded.');
+    }
+    if((snap.bodyChars||0)<500 || !Array.isArray(snap.cards) || snap.cards.length<8 || Number(snap.uniqueAsinCount||0)<6){
+      throw new Error('Amazon search page was incomplete or invalid: '+(snap.cards?.length||0)+' cards / '+(snap.uniqueAsinCount||0)+' unique ASINs.');
+    }
+    if(!String(snap.location||'').includes(String(context.locationValue))){
+      throw new Error('Amazon search page lost '+context.locationValue+'. Header: '+(snap.location||'unknown'));
+    }
 
-  if(missingOrganic.length){
-    await sleep(1400);
-    second=await runPass(missingOrganic);
+    const gotKeyword=String(snap.searchTerm||'').trim().toLowerCase().replace(/\s+/g,' ');
+    if(!String(snap.path||'').startsWith('/s') || gotKeyword!==normalizedKeyword){
+      throw new Error('Amazon returned the wrong search page. Expected “'+keyword+'”, got “'+(snap.searchTerm||snap.url||'unknown')+'”.');
+    }
+
+    const gotPage=Number(snap.pageParam||1);
+    if(gotPage!==pageNum){
+      throw new Error('Amazon returned stale/wrong pagination. Expected page '+pageNum+', got page '+gotPage+'.');
+    }
+
+    const timeOrigin=Number(snap.timeOrigin||0);
+    if(timeOrigin){
+      if(previousTimeOrigin!==null && timeOrigin===previousTimeOrigin){
+        throw new Error('Stale Amazon document detected: navigation time did not change.');
+      }
+      if(Math.abs(timeOrigin-navigationStartedAt)>120000){
+        throw new Error('Stale Amazon page detected: document predates this navigation.');
+      }
+      previousTimeOrigin=timeOrigin;
+    }
+
+    const snapshotAt=Number(snap.snapshotAt||0);
+    if(!snapshotAt || Math.abs(Date.now()-snapshotAt)>30000){
+      throw new Error('Amazon page timestamp validation failed.');
+    }
+    const signature=String(snap.pageSignature||'');
+    if(!signature || pageSignatures.has(signature)){
+      throw new Error('Duplicate/stale Amazon SERP page detected.');
+    }
+    pageSignatures.add(signature);
+
+    for(const card of snap.cards){
+      absoluteCounter++;
+      if(card.sponsored){sponsoredCounter++;sponsoredSeen++}else organicCounter++;
+
+      const matched=rules.filter(r=>{
+        const target=String(r.asin||'').toUpperCase();
+        return Array.isArray(card.asins) && card.asins.includes(target);
+      });
+      if(!matched.length)continue;
+
+      for(const target of matched){
+        const key=String(target.asin).toUpperCase();
+        const cur=found.get(key)||{
+          organic_rank:null,organic_page:null,organic_absolute_position:null,
+          sponsored_found:false,sponsored_position:null,sponsored_page:null,
+          sponsored_absolute_position:null,total_sponsored_ads_before_organic:null
+        };
+
+        if(card.sponsored && !cur.sponsored_found){
+          cur.sponsored_found=true;
+          cur.sponsored_position=sponsoredCounter;
+          cur.sponsored_page=pageNum;
+          cur.sponsored_absolute_position=absoluteCounter;
+        }else if(!card.sponsored && cur.organic_rank===null){
+          cur.organic_rank=organicCounter;
+          cur.organic_page=pageNum;
+          cur.organic_absolute_position=absoluteCounter;
+          cur.total_sponsored_ads_before_organic=sponsoredSeen;
+        }
+        found.set(key,cur);
+      }
+    }
+
+    const allComplete=rules.every(r=>{
+      const x=found.get(String(r.asin).toUpperCase());
+      return context.mode==='full'
+        ? x?.organic_rank!=null && x?.sponsored_found===true
+        : x?.sponsored_found===true;
+    });
+    if(allComplete)break;
+    await sleep(650);
   }
 
+  const completedAt=new Date().toISOString();
   return rules.map(rule=>{
     const key=String(rule.asin).toUpperCase();
-    const a=first.found.get(key)||{};
-    const b=second?.found?.get(key)||{};
-
-    const organicFirst=a.organic_rank!=null;
-    const organicSecond=b.organic_rank!=null;
+    const x=found.get(key)||{};
     const organicChecked=context.mode==='full';
-    const organicFound=organicChecked ? (organicFirst||organicSecond) : null;
-    const chosenOrganic=organicFirst?a:(organicSecond?b:{});
-
-    const sponsoredFound=!!(a.sponsored_found||b.sponsored_found);
-    const chosenSponsored=a.sponsored_found?a:(b.sponsored_found?b:{});
-
-    let scanState='valid_sponsored_only';
-    let confidence=75;
-    let verificationPasses=1;
-
-    if(organicChecked){
-      if(organicFirst){
-        scanState='valid_found';
-        confidence=95;
-        verificationPasses=1;
-      }else if(organicSecond){
-        scanState='valid_found_after_verify';
-        confidence=90;
-        verificationPasses=2;
-      }else{
-        scanState='valid_not_found_confirmed';
-        confidence=92;
-        verificationPasses=2;
-      }
-    }
+    const organicFound=organicChecked ? x.organic_rank!=null : null;
+    const sponsoredFound=!!x.sponsored_found;
 
     return {
       rule_id:rule.rule_id,
@@ -608,27 +627,244 @@ async function scrapeKeyword(tabId,keyword,rules,context){
       location_value:context.locationValue,
       pincode:context.locationValue,
       device:rule.device,
-      checked_at:new Date().toISOString(),
+      checked_at:completedAt,
       status:'SUCCESS',
+      result_state:organicChecked && organicFound ? 'FOUND' : 'UNVERIFIED',
 
       organic_checked:organicChecked,
       organic_found:organicFound,
-      organic_rank:organicFound?(chosenOrganic.organic_rank??null):null,
-      organic_page:organicFound?(chosenOrganic.organic_page??null):null,
-      organic_absolute_position:organicFound?(chosenOrganic.organic_absolute_position??null):null,
-      total_sponsored_ads_before_organic:organicFound?(chosenOrganic.total_sponsored_ads_before_organic??null):null,
+      organic_rank:organicFound?(x.organic_rank??null):null,
+      organic_page:organicFound?(x.organic_page??null):null,
+      organic_absolute_position:organicFound?(x.organic_absolute_position??null):null,
+      total_sponsored_ads_before_organic:organicFound?(x.total_sponsored_ads_before_organic??null):null,
 
       sponsored_checked:true,
       sponsored_found:sponsoredFound,
-      sponsored_position:sponsoredFound?(chosenSponsored.sponsored_position??null):null,
-      sponsored_page:sponsoredFound?(chosenSponsored.sponsored_page??null):null,
-      sponsored_absolute_position:sponsoredFound?(chosenSponsored.sponsored_absolute_position??null):null,
+      sponsored_position:sponsoredFound?(x.sponsored_position??null):null,
+      sponsored_page:sponsoredFound?(x.sponsored_page??null):null,
+      sponsored_absolute_position:sponsoredFound?(x.sponsored_absolute_position??null):null,
 
-      scan_state:scanState,
-      confidence_score:confidence,
-      verification_passes:verificationPasses,
-      page_count:first.pages+(second?.pages||0),
-      total_results_scanned:first.totalScanned+(second?.totalScanned||0)
+      scan_state:organicChecked
+        ? (organicFound?'valid_found':'valid_not_found_single_clean_session')
+        : 'valid_sponsored_only',
+      confidence_score:organicChecked?(organicFound?97:70):80,
+      verification_sessions:1,
+      verification_session_ids:[sessionId],
+      session_page_counts:[pages],
+      verification_passes:1,
+      page_count:pages,
+      total_results_scanned:absoluteCounter,
+      browser_session_id:sessionId,
+      search_started_at:startedAt,
+      search_completed_at:completedAt
+    };
+  });
+}
+
+async function closeRankSession(tab){
+  if(tab?.windowId){
+    await chrome.windows.remove(tab.windowId).catch(()=>{});
+  }
+  await chrome.storage.local.remove(['rankTabId','rankWindowId']);
+}
+
+async function openCleanRankSession(context){
+  const sessionId=crypto.randomUUID();
+  const startedAt=new Date().toISOString();
+
+  const tab=await getRankTab(context.domain);
+  await chrome.tabs.update(tab.id,{active:true});
+
+  await setStatus('Clearing Amazon cookies, cache and site storage…');
+  await clearAmazonSession(context.domain,tab.id);
+
+  await setStatus('Opening a clean '+context.marketName+' session…');
+  await navigate(tab.id,domainOrigin(context.domain)+'/');
+
+  const location=await setAmazonLocation(tab.id,{
+    domain:context.domain,
+    locationType:context.locationType,
+    locationValue:context.locationValue,
+    marketName:context.marketName
+  });
+
+  const snap=await amazonSnapshot(tab.id);
+  const expectedRoot=new URL(domainOrigin(context.domain)).hostname.replace(/^www\./i,'').toLowerCase();
+  const gotRoot=String(snap.hostname||'').replace(/^www\./i,'').toLowerCase();
+  if(gotRoot!==expectedRoot)throw new Error('Clean session opened the wrong Amazon market/domain.');
+  if(snap.blocked||snap.continueShopping)throw new Error('Clean Amazon session is still on a verification/interstitial page.');
+  if(!String(snap.location||'').includes(String(context.locationValue))){
+    throw new Error('Clean Amazon session did not retain '+context.locationValue+'.');
+  }
+
+  return {tab,sessionId,startedAt,location};
+}
+
+async function runKeywordReliably(keyword,rules,context){
+  const maxAttempts=context.mode==='full'?3:2;
+  const evidence=new Map(rules.map(r=>[Number(r.rule_id),{valid:[],errors:[]}]));
+
+  const resolved=rule=>{
+    const ev=evidence.get(Number(rule.rule_id));
+    if(!ev)return false;
+    if(context.mode!=='full')return ev.valid.length>=1;
+    if(ev.valid.some(x=>x.organic_found===true))return true;
+    return ev.valid.filter(x=>x.organic_found===false).length>=2;
+  };
+
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    const pending=rules.filter(r=>!resolved(r));
+    if(!pending.length)break;
+
+    let session=null;
+    try{
+      await setStatus(
+        context.marketName+': '+keyword+' — clean session '+attempt+'/'+maxAttempts+
+        (attempt>1?' verification':'')
+      );
+      session=await openCleanRankSession(context);
+      const observations=await scrapeKeyword(
+        session.tab.id,keyword,pending,
+        {...context,sessionId:session.sessionId},
+        session
+      );
+      for(const o of observations){
+        const ev=evidence.get(Number(o.rule_id));
+        if(ev)ev.valid.push(o);
+      }
+    }catch(e){
+      const msg=e?.message||String(e);
+      for(const r of pending){
+        const ev=evidence.get(Number(r.rule_id));
+        if(ev)ev.errors.push('Session '+attempt+': '+msg);
+      }
+    }finally{
+      if(session?.tab)await closeRankSession(session.tab);
+      else await closePreviousRankWindow().catch(()=>{});
+    }
+  }
+
+  return rules.map(rule=>{
+    const ev=evidence.get(Number(rule.rule_id))||{valid:[],errors:[]};
+    const valid=ev.valid||[];
+    const sessionIds=[...new Set(valid.flatMap(x=>x.verification_session_ids||[x.browser_session_id]).filter(Boolean).map(String))];
+    const pageCounts=valid.map(x=>Number(x.page_count||0));
+    const totalPages=pageCounts.reduce((a,b)=>a+b,0);
+    const totalScanned=valid.reduce((a,x)=>a+Number(x.total_results_scanned||0),0);
+    const latest=valid[valid.length-1]||null;
+    const sponsoredObs=[...valid].reverse().find(x=>x.sponsored_found===true)||latest;
+    const foundObs=[...valid].reverse().find(x=>x.organic_found===true)||null;
+    const notFoundObs=valid.filter(x=>x.organic_found===false);
+
+    if(foundObs){
+      return {
+        ...foundObs,
+        sponsored_found:!!sponsoredObs?.sponsored_found,
+        sponsored_position:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_position??null):null,
+        sponsored_page:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_page??null):null,
+        sponsored_absolute_position:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_absolute_position??null):null,
+        result_state:'FOUND',
+        scan_state:valid.length>1?'valid_found_after_clean_retry':'valid_found',
+        confidence_score:valid.length>1?99:97,
+        verification_sessions:sessionIds.length,
+        verification_session_ids:sessionIds,
+        session_page_counts:pageCounts,
+        verification_passes:valid.length,
+        page_count:totalPages,
+        total_results_scanned:totalScanned,
+        browser_session_id:foundObs.browser_session_id||sessionIds[sessionIds.length-1]||null,
+        search_started_at:valid[0]?.search_started_at||foundObs.search_started_at,
+        search_completed_at:foundObs.search_completed_at||foundObs.checked_at
+      };
+    }
+
+    if(context.mode!=='full' && latest){
+      return {
+        ...latest,
+        result_state:'UNVERIFIED',
+        scan_state:'valid_sponsored_only',
+        confidence_score:80,
+        verification_sessions:sessionIds.length,
+        verification_session_ids:sessionIds,
+        session_page_counts:pageCounts,
+        verification_passes:valid.length,
+        page_count:totalPages,
+        total_results_scanned:totalScanned
+      };
+    }
+
+    if(notFoundObs.length>=2 && sessionIds.length>=2){
+      return {
+        ...latest,
+        status:'SUCCESS',
+        result_state:'CONFIRMED_NOT_FOUND',
+        organic_checked:true,
+        organic_found:false,
+        organic_rank:null,
+        organic_page:null,
+        organic_absolute_position:null,
+        total_sponsored_ads_before_organic:null,
+        sponsored_found:!!sponsoredObs?.sponsored_found,
+        sponsored_position:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_position??null):null,
+        sponsored_page:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_page??null):null,
+        sponsored_absolute_position:sponsoredObs?.sponsored_found?(sponsoredObs.sponsored_absolute_position??null):null,
+        scan_state:'valid_not_found_independent_confirmed',
+        confidence_score:99,
+        verification_sessions:sessionIds.length,
+        verification_session_ids:sessionIds,
+        session_page_counts:pageCounts,
+        verification_passes:valid.length,
+        page_count:totalPages,
+        total_results_scanned:totalScanned,
+        browser_session_id:sessionIds[sessionIds.length-1]||null,
+        search_started_at:valid[0]?.search_started_at||null,
+        search_completed_at:latest?.search_completed_at||latest?.checked_at||new Date().toISOString()
+      };
+    }
+
+    if(notFoundObs.length===1){
+      const one=notFoundObs[0];
+      return {
+        ...one,
+        status:'SUCCESS',
+        result_state:'UNVERIFIED',
+        scan_state:'valid_not_found_unverified',
+        confidence_score:60,
+        verification_sessions:sessionIds.length,
+        verification_session_ids:sessionIds,
+        session_page_counts:pageCounts,
+        verification_passes:valid.length,
+        page_count:totalPages,
+        total_results_scanned:totalScanned,
+        error:'Could not obtain a second independent clean verification. '+(ev.errors||[]).join(' | ')
+      };
+    }
+
+    return {
+      rule_id:rule.rule_id,
+      market_key:context.marketKey,
+      asin:rule.asin,
+      keyword:rule.keyword,
+      location_type:context.locationType,
+      location_value:context.locationValue,
+      pincode:context.locationValue,
+      device:rule.device,
+      checked_at:new Date().toISOString(),
+      status:'FAILED',
+      result_state:'FAILED',
+      organic_checked:false,
+      organic_found:null,
+      sponsored_checked:false,
+      sponsored_found:null,
+      scan_state:'failed',
+      confidence_score:0,
+      verification_sessions:0,
+      verification_session_ids:[],
+      session_page_counts:[],
+      verification_passes:0,
+      page_count:0,
+      total_results_scanned:0,
+      error:(ev.errors||[]).join(' | ')||'No clean verified Amazon session completed.'
     };
   });
 }
@@ -653,7 +889,7 @@ async function runCheck(force=false){
   }
 
   running=true;
-  let conf=null,rankTab=null,previousActive=null;
+  let conf=null,previousActive=null;
 
   try{
     const [active]=await chrome.tabs.query({active:true,currentWindow:true});
@@ -669,7 +905,9 @@ async function runCheck(force=false){
       return {ok:true,skipped:true};
     }
 
-    if(!Array.isArray(conf.rules)||!conf.rules.length)throw new Error('No active tracking rules for '+(conf.market_name||conf.market_key||'market')+'.');
+    if(!Array.isArray(conf.rules)||!conf.rules.length){
+      throw new Error('No active tracking rules for '+(conf.market_name||conf.market_key||'market')+'.');
+    }
 
     const context={
       marketKey:String(conf.market_key||'IN'),
@@ -677,30 +915,12 @@ async function runCheck(force=false){
       domain:String(conf.domain||'www.amazon.in'),
       locationType:String(conf.location_type||'pincode'),
       locationValue:String(conf.location_value||conf.default_pincode||''),
-      mode:String(conf.mode||'full')
+      mode:String(conf.mode||'full'),
+      maxPages:Math.max(1,Math.min(10,Number(conf.max_search_pages||5)))
     };
     if(!validLocation(context.locationType,context.locationValue)){
       throw new Error(context.marketName+' location is not configured correctly.');
     }
-
-    await setStatus('Opening a fresh private rank window…');
-    rankTab=await getRankTab(context.domain);
-    await chrome.tabs.update(rankTab.id,{active:true});
-
-    await setStatus('Clearing Amazon cookies, cache and site storage…');
-    await clearAmazonSession(context.domain,rankTab.id);
-
-    await setStatus('Opening a clean '+context.marketName+' session…');
-    await navigate(rankTab.id,domainOrigin(context.domain)+'/');
-
-    await setStatus('Setting '+context.marketName+' '+context.locationValue+'…');
-    const location=await setAmazonLocation(rankTab.id,{
-      domain:context.domain,
-      locationType:context.locationType,
-      locationValue:context.locationValue,
-      marketName:context.marketName
-    });
-    await setStatus('Verified '+location+'. Checking '+context.marketName+' keywords…');
 
     const results=[];
     const byKeyword=new Map();
@@ -709,126 +929,14 @@ async function runCheck(force=false){
       byKeyword.get(r.keyword).push(r);
     }
 
+    let keywordIndex=0;
     for(const [keyword,rr] of byKeyword){
-      try{
-        await setStatus(context.marketName+': '+keyword+'…');
-        results.push(...await scrapeKeyword(rankTab.id,keyword,rr,context));
-      }catch(e){
-        const msg=e?.message||String(e);
-        results.push(...rr.map(r=>({
-          rule_id:r.rule_id,market_key:context.marketKey,
-          asin:r.asin,keyword:r.keyword,
-          location_type:context.locationType,
-          location_value:context.locationValue,
-          pincode:context.locationValue,
-          device:r.device,checked_at:new Date().toISOString(),
-          status:'FAILED',error:msg
-        })));
-      }
-    }
-
-    // A "Not found" organic result is never accepted from only one browser
-    // session. Recheck only missing organic ASIN/keyword pairs in a completely
-    // independent clean private window.
-    if(context.mode==='full'){
-      const missing=results.filter(x=>
-        x.status==='SUCCESS' &&
-        x.organic_checked===true &&
-        x.organic_found===false
+      keywordIndex++;
+      await setStatus(
+        context.marketName+': '+keyword+' ('+keywordIndex+'/'+byKeyword.size+') — starting clean verification…'
       );
-
-      if(missing.length){
-        const missingIds=new Set(missing.map(x=>Number(x.rule_id)));
-        const verifyRules=conf.rules.filter(r=>missingIds.has(Number(r.rule_id)));
-
-        await setStatus('Verifying '+missing.length+' Not found result(s) in a second clean private session…');
-
-        if(rankTab?.windowId){
-          await chrome.windows.remove(rankTab.windowId).catch(()=>{});
-          await chrome.storage.local.remove(['rankTabId','rankWindowId']);
-        }
-
-        rankTab=await getRankTab(context.domain);
-        await chrome.tabs.update(rankTab.id,{active:true});
-        await clearAmazonSession(context.domain,rankTab.id);
-        await navigate(rankTab.id,domainOrigin(context.domain)+'/');
-
-        const verifiedLocation=await setAmazonLocation(rankTab.id,{
-          domain:context.domain,
-          locationType:context.locationType,
-          locationValue:context.locationValue,
-          marketName:context.marketName
-        });
-        await setStatus('Second session verified '+verifiedLocation+'. Rechecking missing keywords…');
-
-        const verifyByKeyword=new Map();
-        for(const r of verifyRules){
-          if(!verifyByKeyword.has(r.keyword))verifyByKeyword.set(r.keyword,[]);
-          verifyByKeyword.get(r.keyword).push(r);
-        }
-
-        const verifiedResults=[];
-        for(const [keyword,rr] of verifyByKeyword){
-          try{
-            verifiedResults.push(...await scrapeKeyword(rankTab.id,keyword,rr,context));
-          }catch(e){
-            const msg=e?.message||String(e);
-            verifiedResults.push(...rr.map(r=>({
-              rule_id:r.rule_id,
-              market_key:context.marketKey,
-              asin:r.asin,
-              keyword:r.keyword,
-              status:'FAILED',
-              error:'Independent verification failed: '+msg
-            })));
-          }
-        }
-
-        const verifiedMap=new Map(verifiedResults.map(x=>[Number(x.rule_id),x]));
-        for(let i=0;i<results.length;i++){
-          const cur=results[i];
-          if(!missingIds.has(Number(cur.rule_id)))continue;
-          const vr=verifiedMap.get(Number(cur.rule_id));
-
-          if(vr?.status==='SUCCESS' && vr.organic_found===true){
-            results[i]={
-              ...cur,
-              organic_found:true,
-              organic_rank:vr.organic_rank,
-              organic_page:vr.organic_page,
-              organic_absolute_position:vr.organic_absolute_position,
-              total_sponsored_ads_before_organic:vr.total_sponsored_ads_before_organic,
-              scan_state:'valid_found_independent_verify',
-              confidence_score:99,
-              verification_sessions:2,
-              verification_passes:Number(cur.verification_passes||1)+Number(vr.verification_passes||1),
-              page_count:Number(cur.page_count||0)+Number(vr.page_count||0),
-              total_results_scanned:Number(cur.total_results_scanned||0)+Number(vr.total_results_scanned||0)
-            };
-          }else if(vr?.status==='SUCCESS' && vr.organic_found===false){
-            results[i]={
-              ...cur,
-              scan_state:'valid_not_found_independent_confirmed',
-              confidence_score:99,
-              verification_sessions:2,
-              verification_passes:Number(cur.verification_passes||1)+Number(vr.verification_passes||1),
-              page_count:Number(cur.page_count||0)+Number(vr.page_count||0),
-              total_results_scanned:Number(cur.total_results_scanned||0)+Number(vr.total_results_scanned||0)
-            };
-          }else{
-            // If the independent verification itself was invalid/blocked, do
-            // not turn the first pass into a confident Not found.
-            results[i]={
-              ...cur,
-              status:'FAILED',
-              error:vr?.error||'Independent Not found verification did not complete.',
-              scan_state:'verification_failed',
-              confidence_score:0,
-              verification_sessions:2
-            };
-          }
-        }
-      }
+      const keywordResults=await runKeywordReliably(keyword,rr,context);
+      results.push(...keywordResults);
     }
 
     const runId='opera-'+context.marketKey.toLowerCase()+'-'+Date.now();
@@ -863,7 +971,8 @@ async function runCheck(force=false){
     }
 
     await setStatus(
-      context.marketName+' completed: '+stored.success+'/'+stored.total+' successful.'+(stored.alerts?.length?' '+stored.alerts.length+' alert update(s).':''),
+      context.marketName+' completed: '+stored.success+'/'+stored.total+' operationally successful; '+
+      (stored.states?Object.entries(stored.states).map(([k,v])=>k+' '+v).join(', '):'states recorded')+'.',
       {
         lastRunAt:new Date().toISOString(),
         lastSuccess:stored.success,lastFailed:stored.failed,
@@ -879,14 +988,7 @@ async function runCheck(force=false){
     return {ok:false,error:msg};
   }finally{
     running=false;
-
-    // Rank windows are disposable by design. Closing the entire private
-    // window prevents the next run from inheriting Amazon session state.
-    if(rankTab?.windowId){
-      await chrome.windows.remove(rankTab.windowId).catch(()=>{});
-      await chrome.storage.local.remove(['rankTabId','rankWindowId']);
-    }
-
+    await closePreviousRankWindow().catch(()=>{});
     if(previousActive?.id){
       await chrome.tabs.update(previousActive.id,{active:true}).catch(()=>{});
     }
