@@ -61,8 +61,8 @@ $runner = Get-Content $runnerPath -Raw
 if ($manifest.version -ne "1.7.2") {
   throw "Extension update verification failed. Expected manifest 1.7.2, got $($manifest.version)."
 }
-if ($runner -notmatch "2026\.09\.29\.58-leader-v1") {
-  throw "Extension update verification failed. Leader runner build was not downloaded."
+if ($runner -notmatch "2026\.09\.29\.59-safe-window-v1") {
+  throw "Extension update verification failed. Safe-window runner build was not downloaded."
 }
 if ($runner -notmatch "runnerLeaderTabId") {
   throw "Extension update verification failed. Leader guard was not installed."
