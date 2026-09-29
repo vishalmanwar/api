@@ -1,4 +1,5 @@
 const RUNNER_FILE='runner.html';
+const RUNNER_VERSION='2026.09.29.58-leader-v1';
 const WATCHDOG_ALARM='zipify-runner-watchdog';
 
 async function ensureRunner(){
