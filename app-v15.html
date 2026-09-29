@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.28.52</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.28.53</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -253,14 +253,16 @@ async function renderDashboard(){
   const locationReady=String(currentMarket.location_value||'').trim()!=='';
   const action=!locationReady
     ? '<button id="configureMarket" class="primary">Configure '+esc(locationLabelUi())+'</button>'
-    : (p.connected?'<button id="runRankCheck" class="primary">Run live rank check</button>':'<button id="connectProvider" class="secondary">Set up rank agent</button>');
+    : '<button id="runRankCheck" class="primary">Run live rank check</button>';
+  const pendingJobs=Number(p.pending_jobs||d.summary?.pending_jobs||0);
+  const missedJobs=Number(p.missed_jobs_24h||d.summary?.missed_jobs_24h||0);
   const providerNote=!locationReady
     ? '<div class="note"><span class="badge warn">Setup required</span> Set the '+esc(currentMarket.market_name)+' '+esc(locationLabelUi())+' in Settings before creating tracking rules or running checks.</div>'
     : (p.connected
-      ? '<div class="note"><span class="badge good">Connected</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b>. Every successful check is saved as a historical snapshot; new checks do not overwrite older ranks.</div>'
-      : '<div class="note"><span class="dot"></span><b>Rank agent not connected yet.</b> Go to Settings and set up the browser rank agent.</div>');
+      ? '<div class="note"><span class="badge good">Agent online</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b> · queued jobs <b>'+pendingJobs+'</b> · missed in last 24h <b>'+missedJobs+'</b>. Organic rank is updated only from verified measurements; sponsored absence means “not observed in that scan.”</div>'
+      : '<div class="note"><span class="badge warn">Agent offline</span> Opera has not checked in recently. <b>'+pendingJobs+'</b> job(s) are waiting and <b>'+missedJobs+'</b> scheduled slot(s) were missed in the last 24 hours. Jobs are no longer discarded just because the browser is unavailable.</div>');
   $('main').innerHTML=pageHead('Search visibility',marketTitle()+' · '+currentMarket.marketplace+' · '+locationLabelUi()+'-based rank monitoring',action)+
-  '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div></div>'+
+  '<div class="stats"><div class="stat"><span>Tracked ASINs</span><b>'+d.summary.products+'</b></div><div class="stat"><span>Tracked Keywords</span><b>'+d.summary.keywords+'</b></div><div class="stat"><span>Tracked Pairs</span><b>'+d.summary.tracked_pairs+'</b></div><div class="stat"><span>Rank Warnings</span><b>'+d.summary.rank_warnings+'</b></div><div class="stat"><span>Queued Jobs</span><b>'+(d.summary.pending_jobs||0)+'</b></div><div class="stat"><span>Missed 24h</span><b>'+(d.summary.missed_jobs_24h||0)+'</b></div></div>'+
   '<div class="panel"><div class="panelhead"><b>Keyword tracking</b><span class="muted">Verified organic rank · latest sponsored observation</span></div><div class="tablewrap"><table><thead><tr><th>Product</th><th>Keyword</th><th>Priority</th><th>Location</th><th>Search volume (optional)</th><th>Organic</th><th>Target</th><th>Sponsored</th><th>Visibility</th><th>Status</th><th>Measurement time</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+providerNote;
   if($('configureMarket')) $('configureMarket').onclick=()=>navigate('settings');
   if($('connectProvider')) $('connectProvider').onclick=()=>navigate('settings');
