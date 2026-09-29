@@ -50,14 +50,16 @@ if ($background -notmatch "2026\.09\.29\.56-snapshot-v4") {
   throw "Extension update verification failed. Snapshot-v4 background build was not downloaded."
 }
 
-# A normal Opera restart is enough. The rank agent itself creates and destroys
-# its clean private Amazon windows for each keyword; do not seed a persistent
-# private Amazon session here.
+# Opera can keep an unpacked Manifest V3 service worker cached even after a full
+# browser restart. Open the extensions page so the operator can explicitly reload
+# the unpacked Zipify extension and activate the newly downloaded background.js.
 Start-Process $operaPath
+Start-Sleep -Seconds 2
+Start-Process $operaPath "opera://extensions"
 
 Write-Host ""
-Write-Host "Zipify Opera Rank Agent updated and Opera restarted."
+Write-Host "Zipify Opera Rank Agent files updated and Opera restarted."
 Write-Host "Installed manifest: 1.6.2"
 Write-Host "Installed agent build: 2026.09.29.56-snapshot-v4"
-Write-Host "No extension Reload click is needed for the existing unpacked installation."
+Write-Host "IMPORTANT: On the Opera Extensions page that opened, click Reload on Zipify Multi-Market Rank Agent."
 Write-Host ""
