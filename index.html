@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.28.53</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.29.54</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -419,15 +419,29 @@ async function renderReports(days=30){
   const rows=d.rows.length?d.rows.slice().reverse().slice(0,200).map(x=>'<tr><td>'+dateFmt(x.metric_date)+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||d.pincode||'—')+'</td><td>'+(x.median_organic_rank==null?'—':'#'+x.median_organic_rank)+'</td><td>'+(x.best_organic_rank==null?'—':'#'+x.best_organic_rank)+'</td><td>'+(x.worst_organic_rank==null?'—':'#'+x.worst_organic_rank)+'</td><td>'+pct(x.sponsored_visibility_pct)+'</td></tr>').join(''):'';
 
   const historyRows=(h.rows||[]).slice(0,400).map(x=>{
+    const state=String(x.result_state||'UNVERIFIED').toUpperCase();
     const success=x.check_status==='SUCCESS';
-    const organic=success?(x.organic_rank==null?'Not found':'#'+x.organic_rank):'—';
-    const sponsored=success?(x.sponsored_found?(x.sponsored_position==null?'Found':'#'+x.sponsored_position):'Not found'):'—';
-    return '<tr><td>'+esc(dateTimeFmt(x.checked_at))+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||'—')+'</td><td>'+organic+'</td><td>'+sponsored+'</td><td>'+(x.organic_page??'—')+'</td><td>'+(x.organic_absolute_position??'—')+'</td><td><span class="badge '+(success?'good':'bad')+'">'+esc(x.check_status)+'</span></td></tr>';
+    const organic=state==='FOUND' && x.organic_rank!=null
+      ? '#'+x.organic_rank
+      : state==='CONFIRMED_NOT_FOUND'
+        ? '<span class="badge bad">Confirmed not found</span>'
+        : state==='FAILED'
+          ? '<span class="empty">—</span>'
+          : '<span class="badge warn">Unverified</span>';
+    const sponsored=x.sponsored_checked===true
+      ? (x.sponsored_found?(x.sponsored_position==null?'Found':'#'+x.sponsored_position):'<span class="empty">Not observed</span>')
+      : '<span class="empty">—</span>';
+    const stateClass=state==='FOUND'?'good':state==='CONFIRMED_NOT_FOUND'||state==='FAILED'?'bad':'warn';
+    const evidence=(Number(x.verification_sessions||0)>0
+      ? Number(x.verification_sessions||0)+' clean session'+(Number(x.verification_sessions||0)===1?'':'s')
+      : 'No verified session')+
+      (x.confidence_score==null?'':' · '+Number(x.confidence_score)+'%');
+    return '<tr><td>'+esc(dateTimeFmt(x.checked_at))+'</td><td>'+esc(x.product?.asin||'')+'</td><td>'+esc(x.keyword?.keyword||'')+'</td><td>'+esc(x.location_pincode||'—')+'</td><td>'+organic+'</td><td>'+sponsored+'</td><td>'+(x.organic_page??'—')+'</td><td>'+(x.organic_absolute_position??'—')+'</td><td><span class="badge '+stateClass+'">'+esc(state.replaceAll('_',' '))+'</span></td><td>'+esc(evidence)+'</td><td><span class="badge '+(success?'good':'bad')+'">'+esc(x.check_status)+'</span></td></tr>';
   }).join('');
 
   $('main').innerHTML=pageHead('Reports','Organic + sponsored history for '+marketTitle()+' · '+locationLabelUi()+' '+esc(d.location_value||d.pincode||'—'),'<select id="reportDays" class="field" style="width:auto"><option value="7" '+(days==7?'selected':'')+'>7 days</option><option value="30" '+(days==30?'selected':'')+'>30 days</option><option value="90" '+(days==90?'selected':'')+'>90 days</option></select>')+
   '<div class="stats"><div class="stat"><span>Rank observations</span><b>'+d.summary.ranked_observations+'</b></div><div class="stat"><span>Average rank</span><b>'+(d.summary.average_rank==null?'—':'#'+Number(d.summary.average_rank).toFixed(1))+'</b></div><div class="stat"><span>Top 4 visibility</span><b>'+pct(d.summary.top4_pct)+'</b></div><div class="stat"><span>Sponsored visibility</span><b>'+pct(d.summary.sponsored_visibility_avg)+'</b></div></div>'+
-  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">Every successful/failed check stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Automatic Opera checks will populate this history.'))+'</div>'+
+  '<div class="panel"><div class="panelhead"><b>Rank check history</b><span class="muted">FOUND · CONFIRMED NOT FOUND · FAILED · UNVERIFIED are stored separately</span></div>'+(historyRows?'<div class="tablewrap"><table><thead><tr><th>Checked at</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Organic</th><th>Sponsored</th><th>Page</th><th>Absolute pos.</th><th>Result state</th><th>Evidence</th><th>Check</th></tr></thead><tbody>'+historyRows+'</tbody></table></div>':emptyState('No stored rank checks yet','Automatic Opera checks will populate this history.'))+'</div>'+
   '<div class="panel"><div class="panelhead"><b>Daily metrics</b><span class="muted">Current-location median / best / worst only</span></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>ASIN</th><th>Keyword</th><th>Location</th><th>Median</th><th>Best</th><th>Worst</th><th>Sponsored visibility</th></tr></thead><tbody>'+rows+'</tbody></table></div>':emptyState('No historical metrics yet','Metrics populate automatically from stored rank snapshots.'))+'</div>';
   $('reportDays').onchange=e=>renderReports(Number(e.target.value));
 }
