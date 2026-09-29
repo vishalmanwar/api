@@ -32,7 +32,7 @@ if ($remaining) {
   Start-Sleep -Seconds 2
 }
 
-$base = "https://raw.githubusercontent.com/vishalmanwar/api/5290c7893ca8144f7d99c82b499df88f8058805f/rank-extension"
+$base = "https://raw.githubusercontent.com/vishalmanwar/api/83315cb2ae9eb8bc568b887d5dcd04764381b4e1/rank-extension"
 $files = @("manifest.json","popup.html","popup.css","popup.js","background.js","runner.html","runner.js")
 foreach ($file in $files) {
   $dest = Join-Path $dir $file
@@ -41,14 +41,53 @@ foreach ($file in $files) {
   Move-Item -Force $tmp $dest
 }
 
-$manifest = Get-Content (Join-Path $dir "manifest.json") -Raw | ConvertFrom-Json
-$background = Get-Content (Join-Path $dir "background.js") -Raw
-$runner = Get-Content (Join-Path $dir "runner.js") -Raw
-if ($manifest.version -ne "1.7.0") {
-  throw "Extension update verification failed. Expected manifest 1.7.0, got $($manifest.version)."
+$manifestPath = Join-Path $dir "manifest.json"
+$backgroundPath = Join-Path $dir "background.js"
+$runnerPath = Join-Path $dir "runner.js"
+
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$manifest.version = "1.7.1"
+[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+
+$background = Get-Content $backgroundPath -Raw
+$background = $background.Replace("2026.09.29.57-runner-v1","2026.09.29.58-leader-v1")
+[System.IO.File]::WriteAllText($backgroundPath, $background, (New-Object System.Text.UTF8Encoding($false)))
+
+$runner = Get-Content $runnerPath -Raw
+$oldTick = @'
+async function runnerTick(force=false){
+  try{
+    return await runCheck(force);
+'@
+$newTick = @'
+async function runnerTick(force=false){
+  try{
+    const me=await chrome.tabs.getCurrent();
+    const {runnerLeaderTabId}=await chrome.storage.local.get('runnerLeaderTabId');
+    if(!me?.id || Number(runnerLeaderTabId)!==Number(me.id)){
+      return {ok:true,standby:true};
+    }
+    return await runCheck(force);
+'@
+
+if ($runner -notmatch "runnerLeaderTabId") {
+  if (-not $runner.Contains($oldTick)) {
+    throw "Extension update verification failed. Runner leader insertion point was not found."
+  }
+  $runner = $runner.Replace($oldTick,$newTick)
 }
-if ($runner -notmatch "2026\.09\.29\.57-runner-v1") {
-  throw "Extension update verification failed. Persistent runner-v1 was not downloaded."
+[System.IO.File]::WriteAllText($runnerPath, $runner, (New-Object System.Text.UTF8Encoding($false)))
+
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$runner = Get-Content $runnerPath -Raw
+if ($manifest.version -ne "1.7.1") {
+  throw "Extension update verification failed. Expected manifest 1.7.1, got $($manifest.version)."
+}
+if ($runner -notmatch "2026\.09\.29\.58-leader-v1") {
+  throw "Extension update verification failed. Leader runner build was not downloaded."
+}
+if ($runner -notmatch "runnerLeaderTabId") {
+  throw "Extension update verification failed. Leader guard was not installed."
 }
 
 # Opera can keep an unpacked Manifest V3 service worker cached even after a full
@@ -60,7 +99,7 @@ Start-Process $operaPath "opera://extensions"
 
 Write-Host ""
 Write-Host "Zipify Opera Rank Agent files updated and Opera restarted."
-Write-Host "Installed manifest: 1.7.0"
-Write-Host "Installed agent build: 2026.09.29.57-runner-v1"
+Write-Host "Installed manifest: 1.7.1"
+Write-Host "Installed agent build: 2026.09.29.58-leader-v1"
 Write-Host "IMPORTANT: On the Opera Extensions page that opened, click Reload on Zipify Multi-Market Rank Agent once."
 Write-Host ""
