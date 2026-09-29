@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Zipify Multi-Market Rank Agent",
-  "version": "1.5.2",
-  "description": "Fresh-session, independently verified Amazon India and USA rank tracking for Zipify.",
+  "version": "1.6.0",
+  "description": "Evidence-backed clean-session Amazon India and USA organic/sponsored rank tracking for Zipify.",
   "permissions": [
     "storage",
     "alarms",
