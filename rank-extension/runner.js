@@ -1124,6 +1124,11 @@ let runnerPollTimer=null;
 
 async function runnerTick(force=false){
   try{
+    const me=await chrome.tabs.getCurrent();
+    const {runnerLeaderTabId}=await chrome.storage.local.get('runnerLeaderTabId');
+    if(!me?.id || Number(runnerLeaderTabId)!==Number(me.id)){
+      return {ok:true,standby:true};
+    }
     return await runCheck(force);
   }catch(e){
     const msg=e?.message||String(e);
