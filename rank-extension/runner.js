@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.58-leader-v1';
+const EXT_VERSION='2026.09.29.59-safe-window-v1';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -514,11 +514,23 @@ async function setAmazonLocation(tabId,{domain,locationType,locationValue,market
 }
 
 async function closePreviousRankWindow(){
-  const {rankWindowId}=await chrome.storage.local.get('rankWindowId');
-  if(rankWindowId){
-    const w=await chrome.windows.get(Number(rankWindowId)).catch(()=>null);
-    if(w?.id)await chrome.windows.remove(w.id).catch(()=>{});
+  const {rankWindowId,rankTabId}=await chrome.storage.local.get(['rankWindowId','rankTabId']);
+
+  if(rankWindowId && rankTabId){
+    const tab=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
+
+    // Never trust a persisted window id by itself. Browser window ids can be
+    // reused after restarts. Only close the stored window when the exact stored
+    // rank tab still exists, belongs to that window, and is actually incognito.
+    if(
+      tab?.id &&
+      Number(tab.windowId)===Number(rankWindowId) &&
+      tab.incognito===true
+    ){
+      await chrome.windows.remove(Number(rankWindowId)).catch(()=>{});
+    }
   }
+
   await chrome.storage.local.remove(['rankTabId','rankWindowId']);
 }
 
