@@ -32,8 +32,8 @@ if ($remaining) {
   Start-Sleep -Seconds 2
 }
 
-$base = "https://raw.githubusercontent.com/vishalmanwar/api/2bc78bb5f86a9088fdb5d1ae93debcd0d8d0fcad/rank-extension"
-$files = @("manifest.json","popup.html","popup.css","popup.js","background.js")
+$base = "https://raw.githubusercontent.com/vishalmanwar/api/5290c7893ca8144f7d99c82b499df88f8058805f/rank-extension"
+$files = @("manifest.json","popup.html","popup.css","popup.js","background.js","runner.html","runner.js")
 foreach ($file in $files) {
   $dest = Join-Path $dir $file
   $tmp = $dest + ".download"
@@ -42,12 +42,12 @@ foreach ($file in $files) {
 }
 
 $manifest = Get-Content (Join-Path $dir "manifest.json") -Raw | ConvertFrom-Json
-$background = Get-Content (Join-Path $dir "background.js") -Raw
-if ($manifest.version -ne "1.6.2") {
-  throw "Extension update verification failed. Expected manifest 1.6.2, got $($manifest.version)."
+$background = Get-Content (Join-Path $dir "background.js") -Raw`n$runner = Get-Content (Join-Path $dir "runner.js") -Raw
+if ($manifest.version -ne "1.7.0") {
+  throw "Extension update verification failed. Expected manifest 1.7.0, got $($manifest.version)."
 }
-if ($background -notmatch "2026\.09\.29\.56-snapshot-v4") {
-  throw "Extension update verification failed. Snapshot-v4 background build was not downloaded."
+if ($runner -notmatch "2026\.09\.29\.57-runner-v1") {
+  throw "Extension update verification failed. Persistent runner-v1 was not downloaded."
 }
 
 # Opera can keep an unpacked Manifest V3 service worker cached even after a full
@@ -59,7 +59,7 @@ Start-Process $operaPath "opera://extensions"
 
 Write-Host ""
 Write-Host "Zipify Opera Rank Agent files updated and Opera restarted."
-Write-Host "Installed manifest: 1.6.2"
-Write-Host "Installed agent build: 2026.09.29.56-snapshot-v4"
-Write-Host "IMPORTANT: On the Opera Extensions page that opened, click Reload on Zipify Multi-Market Rank Agent."
+Write-Host "Installed manifest: 1.7.0"
+Write-Host "Installed agent build: 2026.09.29.57-runner-v1"
+Write-Host "IMPORTANT: On the Opera Extensions page that opened, click Reload on Zipify Multi-Market Rank Agent once."
 Write-Host ""
