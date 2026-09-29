@@ -32,7 +32,7 @@ if ($remaining) {
   Start-Sleep -Seconds 2
 }
 
-$base = "https://raw.githubusercontent.com/vishalmanwar/api/e28a2dd02db5a010051fe2c46ed528fafa4e2f8f/rank-extension"
+$base = "https://raw.githubusercontent.com/vishalmanwar/api/bf935468e2188433cccb0b2a098a66b826c72ae1/rank-extension"
 $files = @("manifest.json","popup.html","popup.css","popup.js","background.js","runner.html","runner.js")
 foreach ($file in $files) {
   $dest = Join-Path $dir $file
@@ -46,11 +46,11 @@ $backgroundPath = Join-Path $dir "background.js"
 $runnerPath = Join-Path $dir "runner.js"
 
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-$manifest.version = "1.7.2"
+$manifest.version = "1.7.3"
 [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
 
 $background = Get-Content $backgroundPath -Raw
-$background = $background.Replace("2026.09.29.57-runner-v1","2026.09.29.59-safe-window-v1")
+$background = $background.Replace("2026.09.29.57-runner-v1","2026.09.29.60-stable-session-v1")
 [System.IO.File]::WriteAllText($backgroundPath, $background, (New-Object System.Text.UTF8Encoding($false)))
 
 $runner = Get-Content $runnerPath -Raw
@@ -58,11 +58,11 @@ $runner = Get-Content $runnerPath -Raw
 
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $runner = Get-Content $runnerPath -Raw
-if ($manifest.version -ne "1.7.2") {
-  throw "Extension update verification failed. Expected manifest 1.7.2, got $($manifest.version)."
+if ($manifest.version -ne "1.7.3") {
+  throw "Extension update verification failed. Expected manifest 1.7.3, got $($manifest.version)."
 }
 if ($runner -notmatch "2026\.09\.29\.59-safe-window-v1") {
-  throw "Extension update verification failed. Safe-window runner build was not downloaded."
+  throw "Extension update verification failed. Stable-session runner build was not downloaded."
 }
 if ($runner -notmatch "runnerLeaderTabId") {
   throw "Extension update verification failed. Leader guard was not installed."
@@ -77,7 +77,7 @@ Start-Process $operaPath "opera://extensions"
 
 Write-Host ""
 Write-Host "Zipify Opera Rank Agent files updated and Opera restarted."
-Write-Host "Installed manifest: 1.7.2"
-Write-Host "Installed agent build: 2026.09.29.59-safe-window-v1"
+Write-Host "Installed manifest: 1.7.3"
+Write-Host "Installed agent build: 2026.09.29.60-stable-session-v1"
 Write-Host "IMPORTANT: On the Opera Extensions page that opened, click Reload on Zipify Multi-Market Rank Agent once."
 Write-Host ""
