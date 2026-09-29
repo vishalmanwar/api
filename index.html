@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.29.58</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.29.59</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -259,7 +259,7 @@ async function renderDashboard(){
   const providerNote=!locationReady
     ? '<div class="note"><span class="badge warn">Setup required</span> Set the '+esc(currentMarket.market_name)+' '+esc(locationLabelUi())+' in Settings before creating tracking rules or running checks.</div>'
     : (p.update_required
-      ? '<div class="note"><span class="badge warn">Agent update required</span> Installed build <b>'+esc(p.agent_version||'unknown')+'</b>; required build <b>'+esc(p.required_agent_version||'2026.09.29.58-leader-v1')+'</b>. Rank jobs are being held instead of running with the older reliability logic. Queued jobs: <b>'+pendingJobs+'</b>.</div>'
+      ? '<div class="note"><span class="badge warn">Agent update required</span> Installed build <b>'+esc(p.agent_version||'unknown')+'</b>; required build <b>'+esc(p.required_agent_version||'2026.09.29.59-safe-window-v1')+'</b>. Rank jobs are being held instead of running with the older reliability logic. Queued jobs: <b>'+pendingJobs+'</b>.</div>'
       : p.connected
         ? '<div class="note"><span class="badge good">Agent online</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b> · queued jobs <b>'+pendingJobs+'</b> · missed in last 24h <b>'+missedJobs+'</b>. Organic rank is updated only from verified measurements; sponsored absence means “not observed in that scan.”</div>'
         : '<div class="note"><span class="badge warn">Agent offline</span> Opera has not checked in recently. <b>'+pendingJobs+'</b> job(s) are waiting and <b>'+missedJobs+'</b> scheduled slot(s) were missed in the last 24 hours. Jobs are no longer discarded just because the browser is unavailable.</div>');
@@ -456,7 +456,7 @@ async function renderSettings(){
   const agent=a.agent;
   const agentFresh=!!(agent?.last_seen_at && (Date.now()-new Date(agent.last_seen_at).getTime()<10*60*1000));
   const installedAgentVersion=String(agent?.machine_info?.version||'unknown');
-  const requiredAgentVersion='2026.09.29.58-leader-v1';
+  const requiredAgentVersion='2026.09.29.59-safe-window-v1';
   const agentUpdateRequired=agentFresh && installedAgentVersion!==requiredAgentVersion;
   const providerStatus=agentUpdateRequired?'Update required':(agentFresh?'Connected':'Waiting');
   const notify=n.notifications||{};
