@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.55-navigation-v3';
+const EXT_VERSION='2026.09.29.56-snapshot-v4';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -171,13 +171,13 @@ async function navigate(tabId,url){
 }
 
 async function amazonSnapshot(tabId){
-  const [res]=await chrome.scripting.executeScript({
+  const results=await chrome.scripting.executeScript({
     target:{tabId},
     func:()=>{
       const body=(document.body?.innerText||'').trim();
       const line1=(document.querySelector('#glow-ingress-line1')?.textContent||'').trim();
       const line2=(document.querySelector('#glow-ingress-line2')?.textContent||'').trim();
-      const location=(line1+' '+line2).replace(/\s+/g,' ').trim();
+      const locationText=(line1+' '+line2).replace(/\s+/g,' ').trim();
 
       const hrefAsin=href=>{
         const m=String(href||'').match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i);
@@ -198,7 +198,7 @@ async function amazonSnapshot(tabId){
           return {asin,titleAsin,asins:[...new Set(asins)],sponsored,absolute:index+1};
         }).filter(x=>x.asins.length);
 
-      const u=new URL(location.href);
+      const u=new URL(window.location.href);
       const searchTerm=(u.searchParams.get('k')||'').replace(/\+/g,' ').trim();
       const low=body.toLowerCase();
       const blocked=
@@ -220,13 +220,13 @@ async function amazonSnapshot(tabId){
 
       return {
         title:document.title,
-        url:location.href,
+        url:window.location.href,
         path:u.pathname,
         hostname:u.hostname,
         searchTerm,
         pageParam,
         bodyChars:body.length,
-        location,
+        location:locationText,
         cards,
         uniqueAsinCount,
         blocked,
@@ -238,7 +238,15 @@ async function amazonSnapshot(tabId){
       };
     }
   });
-  return res?.result||{};
+
+  const res=results?.[0];
+  if(res?.error){
+    throw new Error('Amazon snapshot script failed: '+String(res.error.message||res.error));
+  }
+  if(!res || !res.result || !res.result.hostname){
+    throw new Error('Amazon snapshot returned no document identity.');
+  }
+  return res.result;
 }
 
 async function cdp(tabId,method,params={}){
@@ -748,6 +756,31 @@ async function openCleanRankSession(context){
   return {tab,sessionId,startedAt,location};
 }
 
+async function preflightMarket(context){
+  let session=null;
+  try{
+    await setStatus(context.marketName+': validating clean private Amazon session…');
+    session=await openCleanRankSession(context);
+    const snap=await amazonSnapshot(session.tab.id);
+    const expectedRoot=new URL(domainOrigin(context.domain)).hostname.replace(/^www\./i,'').toLowerCase();
+    const gotRoot=String(snap.hostname||'').replace(/^www\./i,'').toLowerCase();
+
+    if(gotRoot!==expectedRoot){
+      throw new Error('Preflight opened wrong Amazon domain: '+(snap.hostname||'unknown'));
+    }
+    if(snap.blocked||snap.continueShopping){
+      throw new Error('Preflight is blocked by an Amazon verification/interstitial page.');
+    }
+    if(!String(snap.location||'').includes(String(context.locationValue))){
+      throw new Error('Preflight location verification failed. Wanted '+context.locationValue+'; header: '+(snap.location||'unknown'));
+    }
+    return true;
+  }finally{
+    if(session?.tab)await closeRankSession(session.tab);
+    else await closePreviousRankWindow().catch(()=>{});
+  }
+}
+
 async function runKeywordReliably(keyword,rules,context){
   const maxAttempts=context.mode==='full'?3:2;
   const evidence=new Map(rules.map(r=>[Number(r.rule_id),{valid:[],errors:[]}]));
@@ -969,6 +1002,10 @@ async function runCheck(force=false){
     if(!validLocation(context.locationType,context.locationValue)){
       throw new Error(context.marketName+' location is not configured correctly.');
     }
+
+    // Fail fast before the keyword loop. A broken browser/bootstrap state should
+    // never open/close three windows for every keyword.
+    await preflightMarket(context);
 
     const results=[];
     const byKeyword=new Map();
