@@ -682,7 +682,7 @@ async function scrapeKeyword(tabId,keyword,rules,context,sessionMeta={}){
     const allComplete=rules.every(r=>{
       const x=found.get(String(r.asin).toUpperCase());
       return context.mode==='full'
-        ? x?.organic_rank!=null && x?.sponsored_found===true
+        ? x?.organic_rank!=null
         : x?.sponsored_found===true;
     });
     if(allComplete)break;
@@ -1061,7 +1061,8 @@ async function runCheck(force=false){
       locationType:String(conf.location_type||'pincode'),
       locationValue:String(conf.location_value||conf.default_pincode||''),
       mode:String(conf.mode||'full'),
-      maxPages:Math.max(1,Math.min(10,Number(conf.max_search_pages||5)))
+      maxPages:Math.max(1,Math.min(10,Number(conf.max_search_pages||5))),
+      reuseMarketSession:true
     };
     if(!validLocation(context.locationType,context.locationValue)){
       throw new Error(context.marketName+' location is not configured correctly.');
