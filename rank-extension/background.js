@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.28.52-clean-session';
+const EXT_VERSION='2026.09.28.53-independent-verify';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -277,6 +277,7 @@ async function clearAmazonSession(domain,tabId){
   const origin=domainOrigin(domain);
   const host=new URL(origin).hostname;
   const root=host.replace(/^www\./i,'');
+  const amazonRoots=[...new Set([root,'amazon.in','amazon.com'])];
 
   // Clear only Amazon data in the cookie store used by this private tab.
   let privateStoreId=null;
@@ -292,7 +293,7 @@ async function clearAmazonSession(domain,tabId){
   const cookies=await chrome.cookies.getAll(cookieQuery).catch(()=>[]);
   for(const c of cookies){
     const d=String(c.domain||'').replace(/^\./,'').toLowerCase();
-    if(!(d===root || d.endsWith('.'+root)))continue;
+    if(!amazonRoots.some(r=>d===r || d.endsWith('.'+r)))continue;
     const scheme=c.secure?'https://':'http://';
     const cookieHost=String(c.domain||root).replace(/^\./,'');
     await chrome.cookies.remove({
@@ -308,11 +309,13 @@ async function clearAmazonSession(domain,tabId){
   try{
     await cdp(tabId,'Network.enable').catch(()=>{});
     await cdp(tabId,'Network.clearBrowserCache').catch(()=>{});
-    for(const o of ['https://'+root,'https://www.'+root]){
-      await cdp(tabId,'Storage.clearDataForOrigin',{
-        origin:o,
-        storageTypes:'all'
-      }).catch(()=>{});
+    for(const r of amazonRoots){
+      for(const o of ['https://'+r,'https://www.'+r]){
+        await cdp(tabId,'Storage.clearDataForOrigin',{
+          origin:o,
+          storageTypes:'all'
+        }).catch(()=>{});
+      }
     }
   }finally{
     await chrome.debugger.detach({tabId}).catch(()=>{});
@@ -721,6 +724,110 @@ async function runCheck(force=false){
           device:r.device,checked_at:new Date().toISOString(),
           status:'FAILED',error:msg
         })));
+      }
+    }
+
+    // A "Not found" organic result is never accepted from only one browser
+    // session. Recheck only missing organic ASIN/keyword pairs in a completely
+    // independent clean private window.
+    if(context.mode==='full'){
+      const missing=results.filter(x=>
+        x.status==='SUCCESS' &&
+        x.organic_checked===true &&
+        x.organic_found===false
+      );
+
+      if(missing.length){
+        const missingIds=new Set(missing.map(x=>Number(x.rule_id)));
+        const verifyRules=conf.rules.filter(r=>missingIds.has(Number(r.rule_id)));
+
+        await setStatus('Verifying '+missing.length+' Not found result(s) in a second clean private session…');
+
+        if(rankTab?.windowId){
+          await chrome.windows.remove(rankTab.windowId).catch(()=>{});
+          await chrome.storage.local.remove(['rankTabId','rankWindowId']);
+        }
+
+        rankTab=await getRankTab(context.domain);
+        await chrome.tabs.update(rankTab.id,{active:true});
+        await clearAmazonSession(context.domain,rankTab.id);
+        await navigate(rankTab.id,domainOrigin(context.domain)+'/');
+
+        const verifiedLocation=await setAmazonLocation(rankTab.id,{
+          domain:context.domain,
+          locationType:context.locationType,
+          locationValue:context.locationValue,
+          marketName:context.marketName
+        });
+        await setStatus('Second session verified '+verifiedLocation+'. Rechecking missing keywords…');
+
+        const verifyByKeyword=new Map();
+        for(const r of verifyRules){
+          if(!verifyByKeyword.has(r.keyword))verifyByKeyword.set(r.keyword,[]);
+          verifyByKeyword.get(r.keyword).push(r);
+        }
+
+        const verifiedResults=[];
+        for(const [keyword,rr] of verifyByKeyword){
+          try{
+            verifiedResults.push(...await scrapeKeyword(rankTab.id,keyword,rr,context));
+          }catch(e){
+            const msg=e?.message||String(e);
+            verifiedResults.push(...rr.map(r=>({
+              rule_id:r.rule_id,
+              market_key:context.marketKey,
+              asin:r.asin,
+              keyword:r.keyword,
+              status:'FAILED',
+              error:'Independent verification failed: '+msg
+            })));
+          }
+        }
+
+        const verifiedMap=new Map(verifiedResults.map(x=>[Number(x.rule_id),x]));
+        for(let i=0;i<results.length;i++){
+          const cur=results[i];
+          if(!missingIds.has(Number(cur.rule_id)))continue;
+          const vr=verifiedMap.get(Number(cur.rule_id));
+
+          if(vr?.status==='SUCCESS' && vr.organic_found===true){
+            results[i]={
+              ...cur,
+              organic_found:true,
+              organic_rank:vr.organic_rank,
+              organic_page:vr.organic_page,
+              organic_absolute_position:vr.organic_absolute_position,
+              total_sponsored_ads_before_organic:vr.total_sponsored_ads_before_organic,
+              scan_state:'valid_found_independent_verify',
+              confidence_score:99,
+              verification_sessions:2,
+              verification_passes:Number(cur.verification_passes||1)+Number(vr.verification_passes||1),
+              page_count:Number(cur.page_count||0)+Number(vr.page_count||0),
+              total_results_scanned:Number(cur.total_results_scanned||0)+Number(vr.total_results_scanned||0)
+            };
+          }else if(vr?.status==='SUCCESS' && vr.organic_found===false){
+            results[i]={
+              ...cur,
+              scan_state:'valid_not_found_independent_confirmed',
+              confidence_score:99,
+              verification_sessions:2,
+              verification_passes:Number(cur.verification_passes||1)+Number(vr.verification_passes||1),
+              page_count:Number(cur.page_count||0)+Number(vr.page_count||0),
+              total_results_scanned:Number(cur.total_results_scanned||0)+Number(vr.total_results_scanned||0)
+            };
+          }else{
+            // If the independent verification itself was invalid/blocked, do
+            // not turn the first pass into a confident Not found.
+            results[i]={
+              ...cur,
+              status:'FAILED',
+              error:vr?.error||'Independent Not found verification did not complete.',
+              scan_state:'verification_failed',
+              confidence_score:0,
+              verification_sessions:2
+            };
+          }
+        }
       }
     }
 
