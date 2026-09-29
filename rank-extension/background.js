@@ -31,7 +31,7 @@ async function boot(){
 
 boot().catch(()=>{});
 chrome.runtime.onInstalled.addListener(()=>boot().catch(()=>{}));
-chrome.runtime.onStartup.addListener(()=>boot().catch(()=>{});
+chrome.runtime.onStartup.addListener(()=>boot().catch(()=>{}));
 chrome.alarms.onAlarm.addListener(a=>{
   if(a.name===WATCHDOG_ALARM)ensureRunner().catch(()=>{});
 });
