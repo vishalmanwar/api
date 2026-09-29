@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.57-runner-v1';
+const EXT_VERSION='2026.09.29.58-leader-v1';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
