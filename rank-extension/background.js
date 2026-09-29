@@ -8,17 +8,24 @@ async function ensureRunner(){
   const runners=tabs.filter(t=>String(t.url||'').split('#')[0]===runnerUrl);
 
   let tab=runners[0]||null;
-  for(const extra of runners.slice(1)){
-    if(extra.id)await chrome.tabs.remove(extra.id).catch(()=>{});
-  }
-
   if(!tab){
-    tab=await chrome.tabs.create({url:runnerUrl,active:false,pinned:true});
+    tab=await chrome.tabs.create({url:runnerUrl,active:true,pinned:true});
+  }
+  if(!tab?.id)throw new Error('Could not establish Zipify runner tab.');
+
+  await chrome.storage.local.set({
+    runnerLeaderTabId:tab.id,
+    runnerLeaderSetAt:new Date().toISOString(),
+    runnerLeaderVersion:RUNNER_VERSION
+  });
+
+  for(const extra of runners){
+    if(extra.id && extra.id!==tab.id){
+      await chrome.tabs.remove(extra.id).catch(()=>{});
+    }
   }
 
-  if(tab?.id){
-    await chrome.tabs.update(tab.id,{pinned:true,autoDiscardable:false}).catch(()=>{});
-  }
+  await chrome.tabs.update(tab.id,{pinned:true,autoDiscardable:false}).catch(()=>{});
   return tab;
 }
 
