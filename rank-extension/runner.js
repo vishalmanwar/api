@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.59-safe-window-v1';
+const EXT_VERSION='2026.09.29.60-stable-session-v1';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -750,6 +750,31 @@ async function openCleanRankSession(context){
   const sessionId=crypto.randomUUID();
   const startedAt=new Date().toISOString();
 
+  // During one market run, reuse the same verified private Amazon session.
+  // This avoids reopening the location dialog for every keyword while still
+  // keeping the whole run isolated inside one incognito session.
+  if(context.reuseMarketSession){
+    const {rankTabId,rankWindowId}=await chrome.storage.local.get(['rankTabId','rankWindowId']);
+    if(rankTabId && rankWindowId){
+      const existing=await chrome.tabs.get(Number(rankTabId)).catch(()=>null);
+      if(existing?.id && existing.incognito===true && Number(existing.windowId)===Number(rankWindowId)){
+        const snap=await amazonSnapshot(existing.id).catch(()=>null);
+        const expectedRoot=new URL(domainOrigin(context.domain)).hostname.replace(/^www\./i,'').toLowerCase();
+        const gotRoot=String(snap?.hostname||'').replace(/^www\./i,'').toLowerCase();
+        if(
+          snap &&
+          gotRoot===expectedRoot &&
+          !snap.blocked &&
+          !snap.continueShopping &&
+          String(snap.location||'').includes(String(context.locationValue))
+        ){
+          await chrome.tabs.update(existing.id,{active:true}).catch(()=>{});
+          return {tab:existing,sessionId,startedAt,location:snap.location,reused:true};
+        }
+      }
+    }
+  }
+
   const tab=await getRankTab(context.domain);
   await chrome.tabs.update(tab.id,{active:true});
 
@@ -774,7 +799,7 @@ async function openCleanRankSession(context){
     throw new Error('Clean Amazon session did not retain '+context.locationValue+'.');
   }
 
-  return {tab,sessionId,startedAt,location};
+  return {tab,sessionId,startedAt,location,reused:false};
 }
 
 async function preflightMarket(context){
