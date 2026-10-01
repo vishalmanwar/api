@@ -1,5 +1,5 @@
 const RUNNER_FILE='runner.html';
-const RUNNER_VERSION='2026.09.29.60-stable-session-v1';
+const RUNNER_VERSION='2026.10.01.61-location-api-v1';
 const WATCHDOG_ALARM='zipify-runner-watchdog';
 
 async function ensureRunner(){
@@ -63,7 +63,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     return true;
   }
   if(msg?.type==='ensureAlarm'){
-    boot().then(()=>sendResponse({ok:true,version:'2026.09.29.60-stable-session-v1'}))
+    boot().then(()=>sendResponse({ok:true,version:'2026.10.01.61-location-api-v1'}))
       .catch(e=>sendResponse({ok:false,error:e?.message||String(e)}));
     return true;
   }
