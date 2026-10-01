@@ -61,7 +61,7 @@ $runner = Get-Content $runnerPath -Raw
 if ($manifest.version -ne "1.7.4") {
   throw "Extension update verification failed. Expected manifest 1.7.4, got $($manifest.version)."
 }
-if ($runner -notmatch "2026\.09\.29\.60-stable-session-v1") {
+if ($runner -notmatch "2026\.10\.01\.61-location-api-v1") {
   throw "Extension update verification failed. Location-api runner build was not downloaded."
 }
 if ($runner -notmatch "runnerLeaderTabId") {
