@@ -1,4 +1,4 @@
-const EXT_VERSION='2026.09.29.60-stable-session-v1';
+const EXT_VERSION='2026.10.01.61-location-api-v1';
 const API='https://ywrtgkdkntjyeqdnrbop.supabase.co/functions/v1/rank-intelligence';
 const ALARM='rank-poll';
 const POLL_MINUTES=2;
@@ -309,18 +309,24 @@ async function findLocationControls(tabId){
       };
       const input=[
         document.querySelector('#GLUXZipUpdateInput'),
+        document.querySelector('input[id^="GLUXZipUpdateInput"]'),
         document.querySelector('input[data-action="GLUXPostalInputAction"]'),
+        document.querySelector('#GLUXZipUpdateApi input[type="text"]'),
+        document.querySelector('#GLUXZipUpdateApi input:not([type])'),
+        document.querySelector('input[name*="zip" i]'),
+        document.querySelector('input[name*="postal" i]'),
+        document.querySelector('input[name*="pin" i]'),
         document.querySelector('input[placeholder*="pincode" i]'),
         document.querySelector('input[placeholder*="postal" i]'),
         document.querySelector('input[placeholder*="zip" i]'),
         document.querySelector('input[aria-label*="pincode" i]'),
         document.querySelector('input[aria-label*="postal" i]'),
         document.querySelector('input[aria-label*="zip" i]'),
-        ...document.querySelectorAll('.a-popover input[type="text"],.a-popover input:not([type]),[role="dialog"] input[type="text"]')
+        ...document.querySelectorAll('.a-popover input[type="text"],.a-popover input:not([type]),[role="dialog"] input[type="text"],[role="dialog"] input:not([type])')
       ].find(visible);
 
       const all=[...document.querySelectorAll(
-        '#GLUXZipUpdate,input[aria-labelledby="GLUXZipUpdate-announce"],.a-popover button,.a-popover input[type="submit"],[role="dialog"] button,[role="dialog"] input[type="submit"]'
+        '#GLUXZipUpdate,[id^="GLUXZipUpdate"]:not(input),#GLUXZipUpdateApi button,#GLUXZipUpdateApi input[type="submit"],input[aria-labelledby^="GLUXZipUpdate"],.a-popover button,.a-popover input[type="submit"],[role="dialog"] button,[role="dialog"] input[type="submit"]'
       )].filter(visible);
       const apply=all.find(el=>/apply|update|use this|continue/i.test(
         (el.value||el.textContent||el.getAttribute('aria-label')||'').trim()
@@ -412,6 +418,50 @@ async function verifyLocation(tabId,value,timeout=12000){
   }
   return null;
 }
+async function setAmazonLocationByApi(tabId,origin,locationValue){
+  const [r]=await chrome.scripting.executeScript({
+    target:{tabId},
+    func:async (endpoint,zipCode)=>{
+      try{
+        const body=new URLSearchParams({
+          locationType:'LOCATION_INPUT',
+          zipCode:String(zipCode),
+          storeContext:'generic',
+          deviceType:'web',
+          pageType:'Gateway',
+          actionSource:'glow'
+        });
+        const res=await fetch(endpoint,{
+          method:'POST',
+          credentials:'include',
+          headers:{
+            'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
+            'X-Requested-With':'XMLHttpRequest'
+          },
+          body:body.toString()
+        });
+        const text=await res.text();
+        let data=null;
+        try{data=JSON.parse(text)}catch{}
+        return {
+          ok:res.ok && (
+            data?.sembuUpdated===1 ||
+            data?.sembuUpdated===true ||
+            data?.isValidAddress===1 ||
+            data?.isValidAddress===true
+          ),
+          status:res.status,
+          body:text.slice(0,800)
+        };
+      }catch(e){
+        return {ok:false,status:0,error:e?.message||String(e)};
+      }
+    },
+    args:[origin+'/gp/delivery/ajax/address-change.html',String(locationValue)]
+  });
+  return r?.result||{ok:false,status:0,error:'No address-change response'};
+}
+
 
 async function setAmazonLocation(tabId,{domain,locationType,locationValue,marketName}){
   if(!validLocation(locationType,locationValue)){
@@ -437,6 +487,17 @@ async function setAmazonLocation(tabId,{domain,locationType,locationValue,market
     throw new Error((marketName||'Amazon')+' homepage document was not complete.');
   }
   if(String(snap.location||'').includes(String(locationValue)))return snap.location;
+
+  // Primary path: use Amazon's own same-origin delivery-location endpoint.
+  // This is more stable than depending on the visual glow/modal DOM, which Amazon changes frequently.
+  const apiResult=await setAmazonLocationByApi(tabId,origin,locationValue).catch(()=>null);
+  if(apiResult?.ok){
+    await chrome.tabs.reload(tabId);
+    await waitTabComplete(tabId,60000);
+    await sleep(800);
+    const verified=await verifyLocation(tabId,locationValue,7000);
+    if(verified)return verified;
+  }
 
   await attachDebugger(tabId);
   try{
