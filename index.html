@@ -30,7 +30,7 @@ main{padding:32px 36px;max-width:1550px;width:100%}.top{display:flex;align-items
 <section id="login" class="login-shell">
   <form id="loginForm" class="login-card">
     <div class="logo">Zipify Rank Intelligence</div>
-    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.29.59</span></div>
+    <div class="sub">Private Amazon India + USA search visibility dashboard.<br><span class="tiny">Build 2026.09.29.60</span></div>
     <div id="loginError" class="err hidden">Incorrect username or password.</div>
     <label>Username</label><input id="username" class="field" autocomplete="username" value="vishal" required>
     <label>Password</label><input id="password" class="field" type="password" autocomplete="current-password" required autofocus>
@@ -198,11 +198,66 @@ function apiUrl(path){
 }
 async function api(path,opts={}){
   const headers={...authHeader(),'Content-Type':'application/json',...(opts.headers||{})};
-  const r=await fetch(apiUrl(path),{...opts,headers});
-  if(r.status===401){sessionStorage.removeItem('zri_session');sessionStorage.removeItem('zri_auth');showLogin();$('loginError').classList.remove('hidden');throw new Error('Unauthorized')}
-  let data={};try{data=await r.json()}catch{}
-  if(!r.ok) throw new Error(data.error||('Request failed: '+r.status));
-  return data;
+  let lastErr=null;
+
+  for(let attempt=1;attempt<=2;attempt++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),20000);
+
+    try{
+      const r=await fetch(apiUrl(path),{...opts,headers,signal:controller.signal});
+      clearTimeout(timer);
+
+      if(r.status===401){
+        sessionStorage.removeItem('zri_session');
+        sessionStorage.removeItem('zri_auth');
+        showLogin();
+        $('loginError').classList.remove('hidden');
+        throw new Error('Unauthorized');
+      }
+
+      const raw=await r.text();
+      let data={};
+      try{data=raw?JSON.parse(raw):{}}catch{}
+
+      if(r.ok)return data;
+
+      const transient=
+        r.status===500 || r.status===502 || r.status===503 ||
+        r.status===504 || r.status===522 || r.status===546 ||
+        /connection timed out|error code 522|worker_resource_limit/i.test(raw);
+
+      if(transient){
+        lastErr=new Error('Supabase is temporarily unavailable. Please retry in a moment.');
+        if(attempt<2){
+          await new Promise(resolve=>setTimeout(resolve,1500));
+          continue;
+        }
+        throw lastErr;
+      }
+
+      throw new Error(data.error||('Request failed: '+r.status));
+    }catch(err){
+      clearTimeout(timer);
+      if(err?.message==='Unauthorized')throw err;
+
+      const transient=
+        err?.name==='AbortError' ||
+        /failed to fetch|networkerror|load failed|temporarily unavailable/i.test(String(err?.message||err));
+
+      lastErr=transient
+        ? new Error('Supabase is temporarily unavailable. Please retry in a moment.')
+        : err;
+
+      if(transient && attempt<2){
+        await new Promise(resolve=>setTimeout(resolve,1500));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+
+  throw lastErr||new Error('Request failed');
 }
 function setNav(view){document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
 function pageHead(title,sub,action=''){return '<div class="top"><div><h1>'+esc(title)+'</h1><div class="muted">'+esc(sub)+'</div></div>'+action+'</div>'}
@@ -259,7 +314,7 @@ async function renderDashboard(){
   const providerNote=!locationReady
     ? '<div class="note"><span class="badge warn">Setup required</span> Set the '+esc(currentMarket.market_name)+' '+esc(locationLabelUi())+' in Settings before creating tracking rules or running checks.</div>'
     : (p.update_required
-      ? '<div class="note"><span class="badge warn">Agent update required</span> Installed build <b>'+esc(p.agent_version||'unknown')+'</b>; required build <b>'+esc(p.required_agent_version||'2026.09.29.59-safe-window-v1')+'</b>. Rank jobs are being held instead of running with the older reliability logic. Queued jobs: <b>'+pendingJobs+'</b>.</div>'
+      ? '<div class="note"><span class="badge warn">Agent update required</span> Installed build <b>'+esc(p.agent_version||'unknown')+'</b>; required build <b>'+esc(p.required_agent_version||'2026.09.29.60-stable-session-v1')+'</b>. Rank jobs are being held instead of running with the older reliability logic. Queued jobs: <b>'+pendingJobs+'</b>.</div>'
       : p.connected
         ? '<div class="note"><span class="badge good">Agent online</span> <b>'+esc(p.provider_name||'Zipify Opera Rank Extension')+'</b> · '+esc(locationLabelUi())+' <b>'+esc(p.location_value||p.pincode||'—')+'</b> · queued jobs <b>'+pendingJobs+'</b> · missed in last 24h <b>'+missedJobs+'</b>. Organic rank is updated only from verified measurements; sponsored absence means “not observed in that scan.”</div>'
         : '<div class="note"><span class="badge warn">Agent offline</span> Opera has not checked in recently. <b>'+pendingJobs+'</b> job(s) are waiting and <b>'+missedJobs+'</b> scheduled slot(s) were missed in the last 24 hours. Jobs are no longer discarded just because the browser is unavailable.</div>');
@@ -456,7 +511,7 @@ async function renderSettings(){
   const agent=a.agent;
   const agentFresh=!!(agent?.last_seen_at && (Date.now()-new Date(agent.last_seen_at).getTime()<10*60*1000));
   const installedAgentVersion=String(agent?.machine_info?.version||'unknown');
-  const requiredAgentVersion='2026.09.29.59-safe-window-v1';
+  const requiredAgentVersion='2026.09.29.60-stable-session-v1';
   const agentUpdateRequired=agentFresh && installedAgentVersion!==requiredAgentVersion;
   const providerStatus=agentUpdateRequired?'Update required':(agentFresh?'Connected':'Waiting');
   const notify=n.notifications||{};
