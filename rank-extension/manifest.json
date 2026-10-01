@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Zipify Multi-Market Rank Agent",
-  "version": "1.7.3",
-  "description": "Stable single-session Amazon rank runner with one-time market location setup and evidence-backed validation.",
+  "version": "1.7.4",
+  "description": "Stable single-session Amazon rank runner with API-first delivery location setup and verified fallback controls.",
   "permissions": [
     "storage",
     "alarms",
